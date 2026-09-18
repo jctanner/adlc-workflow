@@ -1,0 +1,30 @@
+api_version: adlc.profile/v1
+id: adlc-workflow
+lifecycle: adlc-initiative-v1
+
+context_sources:
+  - id: rhai-architecture-context
+    repo: https://github.com/opendatahub-io/architecture-context.git
+    ref: main
+    destination: .context/architecture-context
+    include:
+      - architecture/rhoai-*/**
+      - overlays/*.md
+    exclude:
+      - '**/README.md'
+    usage: context/rhai-architecture-context/usage.md
+
+template:
+  path: templates/rhai-initiative-creator/initiative-template.md
+
+reviewers:
+  - id: feasibility
+    worker: skill:rhai-initiative-feasibility-review
+    scoring: false
+  - id: alignment
+    worker: skill:rhai-initiative-alignment-review
+    scoring: false
+
+# Initiative flow is intentionally create/review-oriented. It does not assume
+# RFE-style splitting, speedruns, or batch auto-fix behavior.
+# TODO: define artifact namespace, reviewers, concerns, and publication mapping.

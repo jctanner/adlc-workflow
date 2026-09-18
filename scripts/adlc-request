@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""Create the canonical ADLC request document."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("issue_keys", nargs="+")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--operation", default="create", choices=("create", "reprocess"))
+    parser.add_argument("--mode", default="local", choices=("production", "local", "eval"))
+    parser.add_argument("--identity", default="claude")
+    parser.add_argument("--profile")
+    parser.add_argument("--issue-file", type=Path, action="append", help="captured Jira issue JSON, in issue-key order")
+    args = parser.parse_args()
+    kwargs = {"operation": args.operation, "mode": args.mode, "identity": args.identity}
+    if args.profile:
+        kwargs["profile"] = args.profile
+    if args.issue_file:
+        if len(args.issue_file) != len(args.issue_keys):
+            parser.error("--issue-file must be supplied once for each issue key")
+        source_issues = {}
+        for issue_key, issue_path in zip(args.issue_keys, args.issue_file):
+            issue = json.loads(issue_path.read_text(encoding="utf-8"))
+            if not isinstance(issue, dict):
+                parser.error(f"--issue-file must contain a JSON object: {issue_path}")
+            source_issues[issue_key] = issue
+        if len(source_issues) == 1:
+            kwargs["source_issue"] = next(iter(source_issues.values()))
+        else:
+            kwargs["source_issues"] = source_issues
+    value = {"args": args.issue_keys, "kwargs": kwargs}
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = args.output.with_suffix(args.output.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(args.output)
+    print(args.output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

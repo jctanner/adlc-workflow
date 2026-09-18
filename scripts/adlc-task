@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Advance an ADLC run and save the task envelope to a file."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("run_id")
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    script = Path(__file__).with_name("adlc-workflow")
+    completed = subprocess.run(
+        [str(script), "advance", "--run", args.run_id],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode:
+        print(completed.stderr, end="")
+        return completed.returncode
+    if not completed.stdout.strip():
+        print("adlc-workflow returned no task envelope", file=sys.stderr)
+        return 1
+    try:
+        value = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        print(f"invalid task envelope from adlc-workflow: {exc}", file=sys.stderr)
+        return 1
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    print(args.output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

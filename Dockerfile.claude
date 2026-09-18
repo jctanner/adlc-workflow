@@ -1,0 +1,31 @@
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        jq \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -d /home/evaluator -s /bin/bash evaluator
+
+ENV HOME=/home/evaluator \
+    PATH="/home/evaluator/.local/bin:/home/evaluator/.claude/local:${PATH}"
+
+USER evaluator
+WORKDIR /home/evaluator
+
+RUN curl -fsSL https://claude.ai/install.sh | bash
+RUN pip install --no-cache-dir --user claude-agent-sdk jsonschema PyYAML
+
+USER root
+RUN mkdir -p /home/evaluator/.claude/plugins \
+    && chown -R evaluator:evaluator /home/evaluator/.claude
+
+COPY --chown=evaluator:evaluator scripts/compose-entrypoint.sh /home/evaluator/compose-entrypoint.sh
+RUN chmod 755 /home/evaluator/compose-entrypoint.sh
+
+USER evaluator
+WORKDIR /workspace
+
+ENTRYPOINT ["/home/evaluator/compose-entrypoint.sh"]

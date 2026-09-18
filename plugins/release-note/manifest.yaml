@@ -1,0 +1,8 @@
+api_version: adlc.plugin/v1
+id: release-note
+version: 1.0.0
+policy: required
+
+# TODO: declare activation rules, capabilities, generated fields, and schemas.
+activation: {}
+capabilities: []

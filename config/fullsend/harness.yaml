@@ -1,0 +1,22 @@
+# Illustrative supported-interface configuration from the proposal.
+# Deployment must replace image, policy, role, provider, and timeout values.
+agent: agents/adlc-workflow.md
+image: registry.example/adlc-workflow@sha256:<approved-digest>
+policy: policies/adlc-workflow.yaml
+skills:
+  - skills/adlc-workflow
+  - skills/adlc-feature-refine-worker
+  - skills/adlc-feature-review-worker
+  - skills/adlc-feature-scoring-reviewer
+  - skills/adlc-feature-feasibility-reviewer
+  - skills/adlc-feature-testability-reviewer
+  - skills/adlc-feature-scope-reviewer
+  - skills/adlc-feature-architecture-reviewer
+host_files:
+  - src: ${ADLC_REQUEST_PATH}
+    dest: /sandbox/workspace/adlc-request.json
+validation_loop:
+  script: scripts/validate-adlc-result.sh
+  max_iterations: 1
+  feedback_mode: none
+timeout_minutes: 60

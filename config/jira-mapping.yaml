@@ -1,0 +1,12 @@
+# Approved local/prod publication projection. Deployment-specific field IDs can
+# be added without changing the core or adapter interface.
+api_version: adlc.jira-mapping/v1
+comment_marker: "<!-- adlc-publication:{run_id}:{work_id} -->"
+strategy_target:
+  project: RHAISTRAT
+  issue_type: Feature
+  link_type: Cloners
+labels:
+  published: adlc-published
+  auto_created: strat-creator-auto-created
+fields: {}

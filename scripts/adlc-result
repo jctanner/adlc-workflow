@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Build a canonical ADLC task result from a markdown output file."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task-file", type=Path, required=True)
+    parser.add_argument("--markdown-file", type=Path, required=True)
+    parser.add_argument("--field", required=True, choices=("strategy_markdown", "review_markdown"))
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    task = json.loads(args.task_file.read_text(encoding="utf-8"))
+    markdown = args.markdown_file.read_text(encoding="utf-8")
+    if not markdown.strip():
+        raise SystemExit(f"markdown file is empty: {args.markdown_file}")
+    result = {
+        "task_id": task["task_id"],
+        "run_id": task["run_id"],
+        "revision": task["expected_revision"],
+        "outputs": {args.field: markdown},
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = args.output.with_suffix(args.output.suffix + ".tmp")
+    temporary.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(args.output)
+    print(args.output)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

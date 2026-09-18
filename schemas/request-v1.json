@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "adlc/request-v1",
+  "type": "object",
+  "required": ["args", "kwargs"],
+  "additionalProperties": false,
+  "properties": {
+    "args": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]+$"}
+    },
+    "kwargs": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": true,
+      "properties": {
+        "operation": {"enum": ["create", "reprocess"]},
+        "mode": {"enum": ["production", "local", "eval"]},
+        "identity": {"type": "string", "minLength": 1},
+        "profile": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

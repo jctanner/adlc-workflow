@@ -1,0 +1,62 @@
+services:
+  jira-emulator:
+    build:
+      context: ../checkouts/jctanner/jira-emulator
+      dockerfile: Dockerfile
+    image: adlc-jira-emulator:local
+    ports:
+      - "${JIRA_HOST_PORT:-8080}:8080"
+    environment:
+      AUTH_MODE: ${JIRA_AUTH_MODE:-strict}
+      DATABASE_URL: sqlite+aiosqlite:////data/jira.db
+      HOST: 0.0.0.0
+      JIRA_USER: ${JIRA_USER:-admin}
+      JIRA_TOKEN: ${JIRA_TOKEN:-jira-emulator-default-token}
+      PORT: 8080
+      SEED_DATA: "true"
+    volumes:
+      - jira-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request;
+          request=urllib.request.Request('http://127.0.0.1:8080/rest/api/2/project',
+          headers={'Authorization': 'Bearer ' + os.environ['JIRA_TOKEN']});
+          urllib.request.urlopen(request).read()
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  claude:
+    build:
+      context: .
+      dockerfile: Dockerfile.claude
+    image: adlc-claude-task-runner:local
+    userns_mode: keep-id
+    depends_on:
+      jira-emulator:
+        condition: service_healthy
+    environment:
+      CLAUDE_PLUGIN_ROOT: /home/evaluator/.claude/plugins/adlc-workflow
+      ADLC_CLAUDE_MODEL: ${ADLC_CLAUDE_MODEL:-claude-haiku-4-5}
+      ADLC_ISSUE_KEY: ${ADLC_ISSUE_KEY:-RHAIRFE-1}
+      ADLC_JIRA_TOKEN: ${JIRA_TOKEN:-jira-emulator-default-token}
+      ADLC_JIRA_URL: http://jira-emulator:8080
+      CLAUDE_CODE_USE_VERTEX: ${CLAUDE_CODE_USE_VERTEX:-1}
+      ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID:?Set ANTHROPIC_VERTEX_PROJECT_ID}
+      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-global}
+      GOOGLE_APPLICATION_CREDENTIALS: /home/evaluator/.config/gcloud/application_default_credentials.json
+      JIRA_TOKEN: ${JIRA_TOKEN:-jira-emulator-default-token}
+      JIRA_USER: ${JIRA_USER:-admin}
+    volumes:
+      - .:/home/evaluator/.claude/plugins/adlc-workflow:ro
+      - ${ADLC_WORKSPACE_DIR:-./workspace}:/workspace:rw
+      - ${ADLC_HOST_ADC_PATH:-${HOME}/.config/gcloud/application_default_credentials.json}:/home/evaluator/.config/gcloud/application_default_credentials.json:ro
+    working_dir: /workspace
+
+volumes:
+  jira-data:

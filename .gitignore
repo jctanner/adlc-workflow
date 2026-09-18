@@ -1,0 +1,10 @@
+.venv/
+.env
+workspace/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+.adlc/state/*

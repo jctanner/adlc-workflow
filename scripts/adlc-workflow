@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+install_root=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
+workspace_root=${ADLC_WORKSPACE:-${PWD}}
+profile=${ADLC_PROFILE:-config/rhai-feature-creator.yaml}
+
+export PYTHONPATH="$install_root/src${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m adlc_workflow.cli \
+  --install-root "$install_root" \
+  --workspace "$workspace_root" \
+  --profile "$profile" \
+  "$@"

@@ -1,0 +1,21 @@
+api_version: adlc.profile/v1
+id: adlc-workflow
+lifecycle: adlc-epic-v1
+
+# Epic decomposition uses the strategy artifact as input and produces an
+# implementation-epic DAG plus review evidence.
+artifacts:
+  namespace: epic
+  bundle_root: artifacts
+  roots:
+    strategy_inputs: artifacts/workflow-tasks
+    epic_tasks: artifacts/workflow-epic-tasks
+    epic_reviews: artifacts/workflow-epic-reviews
+    reports: artifacts/reports
+private_state:
+  root: .adlc/state
+  run_files:
+    request: request.json
+    state: state.json
+  work_files:
+    decomposition: decompose-runs/

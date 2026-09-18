@@ -1,0 +1,8 @@
+api_version: adlc.plugin/v1
+id: fixture-concern
+version: 0.1.0
+policy: advisory
+
+# TODO: second concern fixture proving registry-only extensibility.
+activation: {}
+capabilities: []

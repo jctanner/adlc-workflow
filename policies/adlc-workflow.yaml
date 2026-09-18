@@ -1,0 +1,4 @@
+# TODO: configure mode admission, capabilities, worker restrictions, and effect
+# policy through the supported Fullsend/OpenShell interfaces.
+api_version: adlc.policy/v1
+id: adlc-workflow

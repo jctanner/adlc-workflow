@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""Persist a worker artifact inside the runtime workspace."""
+
+from __future__ import annotations
+
+import argparse
+import shutil
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("destination", type=Path)
+    args = parser.parse_args()
+    source = args.source.resolve()
+    destination = args.destination.resolve()
+    if not source.is_file():
+        raise SystemExit(f"artifact source does not exist: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Workers may write directly to the profile-selected public artifact. In
+    # that case persistence is already satisfied and must remain idempotent.
+    if source == destination:
+        print(destination)
+        return 0
+    shutil.copyfile(source, destination)
+    print(destination)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

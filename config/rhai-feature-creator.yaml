@@ -1,0 +1,156 @@
+# Profile schema and compatibility version.
+api_version: adlc.profile/v1
+# Shared workflow package identity.
+id: adlc-workflow
+# Core lifecycle implementation selected by this profile.
+lifecycle: adlc-feature-v1
+
+# External and repository-backed context made available to refinement/review.
+context_sources:
+  - id: rhai-architecture-context
+    repo: https://github.com/opendatahub-io/architecture-context.git
+    ref: main
+    destination: .context/architecture-context
+    include:
+      - architecture/rhoai-*/**
+      - overlays/*.md
+    exclude:
+      - '**/README.md'
+    usage: context/rhai-architecture-context/usage.md
+# Ordered workflow stages and the gates that admit work to each stage.
+workflow:
+  stages:
+    # RHAIRFE intake mirrors strat-pipeline's discovery gate.
+    - id: refine
+      worker: skill:adlc-feature-refine-worker
+      template:
+        path: templates/rhai-feature-creator/feature-template.md
+      protected_sections:
+        - Business Need
+        - Staff Engineer / SME Input
+      outputs:
+        - strategy_markdown
+      gate:
+        source:
+          project: RHAIRFE
+          issue_type: Feature Request
+          labels:
+            any:
+              - rfe-creator-autofix-rubric-pass
+              - rfe-creator-rubric-pass
+              - tech-reviewed
+            none:
+              - strat-creator-processing
+              - strat-creator-rubric-pass
+              - strat-creator-needs-attention
+          fields:
+            status:
+              not_in:
+                - Closed
+                - Resolved
+                - Draft
+            customfield_10855:
+              exists: true
+
+    # Review fans out to the configured semantic workers, then aggregates them.
+    - id: review
+      worker: skill:adlc-feature-review-worker
+      reviewers:
+        - id: scorer
+          worker: skill:adlc-feature-scoring-reviewer
+          result:
+            schema: schemas/scorer-result-v1.json
+            artifact:
+              root: reviews
+              filename: "{issue_key}-scorer-review.md"
+        - id: feasibility
+          worker: skill:adlc-feature-feasibility-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: "{issue_key}-{reviewer_id}-review.md"
+        - id: testability
+          worker: skill:adlc-feature-testability-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: "{issue_key}-{reviewer_id}-review.md"
+        - id: scope
+          worker: skill:adlc-feature-scope-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: "{issue_key}-{reviewer_id}-review.md"
+        - id: architecture
+          worker: skill:adlc-feature-architecture-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: "{issue_key}-{reviewer_id}-review.md"
+      aggregate:
+        inputs:
+          - scorer
+          - feasibility
+          - testability
+          - scope
+          - architecture
+        schema: schemas/aggregated-review-v1.json
+        renderer: core:adlc-feature-review-v1
+        artifact:
+          root: reviews
+          filename: "{issue_key}-review.md"
+      scoring:
+        inputs:
+          - scorer
+        rubric:
+          path: config/rubrics/feature-review.yaml
+          digest: <pinned-digest>
+        verdict: core:adlc-feature-v1
+      outputs:
+        - review_markdown
+
+    # Publication is the terminal stage and is deliberately effect-oriented.
+    - id: publish
+      kind: publication
+      adapters:
+        local:
+          - jira
+          - archive
+        eval:
+          - archive
+      jira_mapping: config/jira-mapping.yaml
+
+# Versioned concern/plugin packages enabled for this lifecycle.
+concerns: []
+# Public, validator-facing evidence and generated document layout.
+artifacts:
+  namespace: feature
+  bundle_root: artifacts
+  result_file: rhai-feature-result.json
+  roots:
+    tasks: artifacts/rhai-feature-tasks
+    originals: artifacts/rhai-feature-originals
+    reviews: artifacts/rhai-feature-reviews
+    inputs: artifacts/rhai-feature-inputs
+    extensions: artifacts/rhai-feature-extension-results
+    reports: artifacts/rhai-feature-reports
+    published: artifacts/rhai-feature-published
+  evidence_files:
+    selection: rhai-feature-selection.json
+    result: rhai-feature-result.json
+    pipeline_data: rhai-feature-pipeline-data.json
+# Private mutable control-plane state used during execution and recovery.
+private_state:
+  root: .adlc/state
+  run_files:
+    request: request.json
+    state: state.json
+  work_files:
+    state: state.json
+    tasks: tasks/
+    effect_intents: effect-intents/
+    effect_receipts: effect-receipts/

@@ -1,0 +1,6 @@
+# TODO: bind production, local, and eval modes to approved adapters and effect
+# classes. Production admission must reject local/eval requests and bundles.
+modes:
+  production: {}
+  local: {}
+  eval: {}

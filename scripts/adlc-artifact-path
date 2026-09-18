@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Resolve a public artifact path from the active ADLC profile."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+SCRIPT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPT_ROOT / "src"))
+
+from adlc_workflow.artifacts import ArtifactLayout  # noqa: E402
+from adlc_workflow.profiles import load_profile  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("kind", choices=("task", "review", "published", "context-manifest", "selection", "result"))
+    parser.add_argument("issue_key", nargs="?")
+    parser.add_argument("--profile", default="config/rhai-feature-creator.yaml")
+    parser.add_argument("--workspace", default=".")
+    parser.add_argument("--install-root", default=str(SCRIPT_ROOT))
+    args = parser.parse_args()
+    layout = ArtifactLayout(Path(args.workspace).resolve(), load_profile(args.install_root, args.profile))
+    if args.kind in {"task", "review"} and not args.issue_key:
+        parser.error(f"{args.kind} requires an issue key")
+    paths = {
+        "task": layout.task(args.issue_key) if args.issue_key else None,
+        "review": layout.review(args.issue_key) if args.issue_key else None,
+        "published": layout.root("published"),
+        "context-manifest": layout.root("inputs") / "context-manifest.json",
+        "selection": layout.evidence_path("selection"),
+        "result": layout.evidence_path("result"),
+    }
+    print(paths[args.kind])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

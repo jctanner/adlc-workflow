@@ -1,0 +1,19 @@
+{
+  "name": "adlc-local",
+  "description": "Local in-place ADLC workflow development marketplace.",
+  "owner": {
+    "name": "ADLC maintainers"
+  },
+  "plugins": [
+    {
+      "name": "adlc-workflow",
+      "source": {
+        "source": "command",
+        "command": "printf '%s\\n' /home/evaluator/.claude/plugins/adlc-workflow",
+        "mode": "link"
+      },
+      "description": "Deterministic ADLC workflow entrypoint and worker interfaces.",
+      "version": "0.0.0"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Submit an ADLC task result through the installed workflow wrapper."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("run_id")
+    parser.add_argument("task_id")
+    parser.add_argument("result", type=Path)
+    args = parser.parse_args()
+    try:
+        envelope = json.loads(args.result.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        parser.error(f"cannot read result envelope {args.result}: {exc}")
+    if envelope.get("kind") in {"complete", "blocked"}:
+        print(
+            "terminal workflow response must not be submitted; "
+            "read the response and stop",
+            flush=True,
+        )
+        return 2
+    if not args.task_id or args.task_id in {"null", "None"}:
+        print("refusing to submit without a real task id", flush=True)
+        return 2
+    script = Path(__file__).with_name("adlc-workflow")
+    completed = subprocess.run(
+        [
+            str(script),
+            "submit",
+            "--run",
+            args.run_id,
+            "--task",
+            args.task_id,
+            "--result",
+            str(args.result),
+        ],
+        check=False,
+    )
+    return completed.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
