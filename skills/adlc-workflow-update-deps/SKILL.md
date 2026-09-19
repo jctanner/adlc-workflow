@@ -16,7 +16,7 @@ The removal list mirrors everything `scripts/bootstrap-rhai-request-assess.sh` i
 
 ```bash
 rm -rf .context/rhai-request-assess \
-  .claude/skills/rhai-request-assess .claude/skills/rhai-initiative-assess .claude/skills/adlc-export-rubric \
+  .claude/skills/rhai-request-assess .claude/skills/rhai-initiative-assess .claude/skills/rhai-request-export-rubric \
   .claude/agents/rfe-scorer.md .claude/agents/initiative-scorer.md
 bash scripts/bootstrap-rhai-request-assess.sh
 ```

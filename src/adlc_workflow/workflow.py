@@ -56,9 +56,27 @@ def stage_outputs(stage_definition: dict[str, Any]) -> list[str]:
     outputs = stage_definition.get("outputs", [])
     if isinstance(outputs, str):
         outputs = [outputs]
-    if not isinstance(outputs, list) or not all(isinstance(item, str) and item for item in outputs):
-        raise WorkflowDefinitionError(f"stage {stage_definition['id']} outputs must be a list of names")
-    return outputs
+    if not isinstance(outputs, list):
+        raise WorkflowDefinitionError(f"stage {stage_definition['id']} outputs must be a list")
+    names = []
+    for item in outputs:
+        name = item.get("name") if isinstance(item, dict) else item
+        if not isinstance(name, str) or not name:
+            raise WorkflowDefinitionError(f"stage {stage_definition['id']} outputs must contain names")
+        names.append(name)
+    return names
+
+
+def stage_output_artifacts(stage_definition: dict[str, Any]) -> dict[str, str]:
+    """Return output names mapped to ArtifactLayout targets."""
+    outputs = stage_definition.get("outputs", [])
+    if isinstance(outputs, str):
+        return {}
+    return {
+        item["name"]: item["artifact"]
+        for item in outputs
+        if isinstance(item, dict) and item.get("artifact")
+    }
 
 
 def evaluate_gate(stage_definition: dict[str, Any], context: dict[str, Any]) -> list[str]:

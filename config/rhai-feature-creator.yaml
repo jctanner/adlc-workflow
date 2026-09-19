@@ -22,14 +22,15 @@ workflow:
   stages:
     # RHAIRFE intake mirrors strat-pipeline's discovery gate.
     - id: refine
-      worker: skill:adlc-feature-refine-worker
+      worker: skill:rhai-feature-refine-worker
       template:
         path: templates/rhai-feature-creator/feature-template.md
       protected_sections:
         - Business Need
         - Staff Engineer / SME Input
       outputs:
-        - strategy_markdown
+        - name: strategy_markdown
+          artifact: task
       gate:
         source:
           project: RHAIRFE
@@ -54,38 +55,39 @@ workflow:
 
     # Review fans out to the configured semantic workers, then aggregates them.
     - id: review
-      worker: skill:adlc-feature-review-worker
+      worker: skill:rhai-feature-review-worker
+      reviewer_execution: parallel
       reviewers:
         - id: scorer
-          worker: skill:adlc-feature-scoring-reviewer
+          worker: agent:rhai-feature-scoring-reviewer
           result:
             schema: schemas/scorer-result-v1.json
             artifact:
               root: reviews
               filename: "{issue_key}-scorer-review.md"
         - id: feasibility
-          worker: skill:adlc-feature-feasibility-reviewer
+          worker: agent:rhai-feature-feasibility-reviewer
           result:
             schema: schemas/reviewer-result-v1.json
             artifact:
               root: reviews
               filename: "{issue_key}-{reviewer_id}-review.md"
         - id: testability
-          worker: skill:adlc-feature-testability-reviewer
+          worker: agent:rhai-feature-testability-reviewer
           result:
             schema: schemas/reviewer-result-v1.json
             artifact:
               root: reviews
               filename: "{issue_key}-{reviewer_id}-review.md"
         - id: scope
-          worker: skill:adlc-feature-scope-reviewer
+          worker: agent:rhai-feature-scope-reviewer
           result:
             schema: schemas/reviewer-result-v1.json
             artifact:
               root: reviews
               filename: "{issue_key}-{reviewer_id}-review.md"
         - id: architecture
-          worker: skill:adlc-feature-architecture-reviewer
+          worker: agent:rhai-feature-architecture-reviewer
           result:
             schema: schemas/reviewer-result-v1.json
             artifact:
@@ -107,11 +109,12 @@ workflow:
         inputs:
           - scorer
         rubric:
-          path: config/rubrics/feature-review.yaml
-          digest: <pinned-digest>
+          path: config/rubrics/rhai-feature-review.yaml
+          digest: sha256:349ee544fd70ba24f31420c79eacb64f9c4640093ef042f7d0e08b5766c4f58c
         verdict: core:adlc-feature-v1
       outputs:
-        - review_markdown
+        - name: review_markdown
+          artifact: review
 
     # Publication is the terminal stage and is deliberately effect-oriented.
     - id: publish

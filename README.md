@@ -21,6 +21,31 @@ values, credentials, and production adapters are intentionally absent.
 
 See the proposal for the ownership, lifecycle, and acceptance requirements.
 
+## Reviewer agents
+
+The feature profile declares five `agent:` reviewers. The review dispatch
+skill runs in the parent session and launches native background Task/Agent
+calls; individual reviewers no longer use forked Skill calls. The
+`adlc-review-plan` helper supplies profile-selected paths and agent assignments.
+Dispatch waits for all agents to succeed and checks their output files before
+aggregation.
+
+To test native reviewer concurrency without resetting Jira or running the
+whole workflow, run this inside the configured Claude container:
+
+```sh
+podman-compose exec claude python3 \
+  /home/evaluator/.claude/plugins/adlc-workflow/scripts/test-reviewer-concurrency.py
+```
+
+This makes a live model call (budget cap $1) using isolated temporary fixture
+documents and a fixture rubric. It retains the JSONL log and asserts that all
+five reviewer executions start before the first completion, all succeed, and
+all output files exist. It tests native agent dispatch; a full workflow run
+is still needed to check the parent skill's orchestration and aggregation.
+The production `config/rubrics/rhai-feature-review.yaml` is a pinned,
+repository-local copy of the approved four-dimension strategy rubric.
+
 ## Claude/Jira integration test
 
 The end-to-end test starts the local `checkouts/jctanner/jira-emulator`

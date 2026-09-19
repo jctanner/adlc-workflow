@@ -73,18 +73,13 @@ Execution contract:
    its `issue_key` and `work_id`; use a run- and work-scoped scratch directory
    such as `/workspace/.adlc/runs/<run-id>/<work-id>/` for task and result
    envelopes. Never use `current-task.json`, `task.json`, `refine-result.json`,
-   or other flat aliases. For a refine task, write the strategy markdown with the Write tool,
-   then use the prewritten result-envelope command below. Do not generate the
-   JSON envelope with inline Python, a heredoc, or a pipe:
-
-   ```json
-   {
-     "task_id": "<task_id>",
-     "run_id": "<run_id>",
-     "revision": 0,
-     "outputs": {"strategy_markdown": "<complete strategy markdown>"}
-   }
-   ```
+   or other flat aliases. For a refine task, invoke
+   `adlc-workflow:rhai-feature-refine-worker` through the Skill tool with the
+   task's `issue_key`. The worker writes the strategy artifact and returns only
+   a compact JSON record containing its absolute `artifact_path`; do not ask it
+   to return or reproduce the markdown. Use that path directly with the
+   prewritten result-envelope command below. Do not generate the JSON envelope
+   with inline Python, a heredoc, or a pipe:
 
    ```bash
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-result" \
@@ -96,22 +91,20 @@ Execution contract:
 
    Submit with
    `"$CLAUDE_PLUGIN_ROOT/scripts/adlc-submit" <run-id> <task-id> <task-result-path>`.
-   Before advancing to the next stage, persist the accepted strategy markdown as the
-   public artifact by running:
-
-   First resolve the destination with
-   `"$CLAUDE_PLUGIN_ROOT/scripts/adlc-artifact-path" task <issue-key>
-   --workspace /workspace`, then pass that returned path to `adlc-persist`.
-
-   Do not stage a second copy with an ad-hoc `cp` command. Submit the result
-   through the CLI and confirm that submission was accepted.
-6. For each review task, write the review markdown with
-   the Write tool, and use the same `adlc-result` command with
+   The core persists the accepted strategy markdown to the profile-selected
+   public artifact when the result is submitted. Do not copy or persist a
+   second artifact manually. Submit the result through the CLI and confirm
+   that submission was accepted.
+6. For each review task, invoke `adlc-workflow:rhai-feature-review-worker`
+   through the Skill tool with the task's `issue_key`. This dispatch skill runs
+   in this parent session and launches the profile's native reviewer agents.
+   Do not wrap it in a forked subagent. After it returns the aggregate path,
+   use that exact file with the same `adlc-result` command and
    `--field review_markdown` to construct the result. Submit it with
    `adlc-submit` and confirm acceptance.
-   Resolve the review destination with
-   `"$CLAUDE_PLUGIN_ROOT/scripts/adlc-artifact-path" review <issue-key>
-   --workspace /workspace`, then persist the accepted review markdown there.
+   The core persists the accepted review markdown to the profile-selected
+   public artifact when the result is submitted. Do not copy or persist a
+   second artifact manually.
 7. After each submitted result, advance again and inspect the envelope. If its
    `kind` is `complete` or
    `blocked`, stop immediately: it is a terminal response, not a task, and

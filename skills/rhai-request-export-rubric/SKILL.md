@@ -1,12 +1,12 @@
 ---
-name: adlc-export-rubric
+name: rhai-request-export-rubric
 description: Export the rhai-request-assess scoring rubric to artifacts/rfe-rubric.md in the current working directory.
 allowed-tools: Read, Write, Bash
 ---
 
 ## Usage
 ```
-/adlc-export-rubric
+/rhai-request-export-rubric
 ```
 
 ## Instructions
@@ -34,4 +34,4 @@ Add to your user or project `.claude/settings.json`:
 }
 ```
 
-`<SKILL_PATH>` is a placeholder for the absolute path to the `skills/adlc-export-rubric/` directory in this plugin.
+`<SKILL_PATH>` is a placeholder for the absolute path to the `skills/rhai-request-export-rubric/` directory in this plugin.

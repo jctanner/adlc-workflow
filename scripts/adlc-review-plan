@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Print agent assignments or verify all reviewer outputs before aggregation."""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+SCRIPT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPT_ROOT / "src"))
+
+from adlc_workflow.profiles import load_profile
+from adlc_workflow.reviews import check_review_outputs, review_plan
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("issue_key")
+    parser.add_argument("--workspace", default=os.environ.get("ADLC_WORKSPACE", "."))
+    parser.add_argument("--profile", default=os.environ.get("ADLC_PROFILE", "config/rhai-feature-creator.yaml"))
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    try:
+        plan = review_plan(SCRIPT_ROOT, Path(args.workspace), load_profile(SCRIPT_ROOT, args.profile),
+                           args.issue_key, args.profile)
+        if args.check:
+            missing = check_review_outputs(plan)
+            print(json.dumps({"status": "incomplete" if missing else "ready", "missing": missing}))
+            return 2 if missing else 0
+        print(json.dumps(plan, indent=2))
+    except (OSError, ValueError, KeyError) as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

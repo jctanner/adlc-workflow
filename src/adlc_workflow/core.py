@@ -15,7 +15,7 @@ from .profiles import load_profile
 from .selection import SelectionError, freeze_selection, normalize_request
 from .state import StateError, StateStore
 from .tasks import TaskError, validate_result
-from .workflow import WorkflowDefinitionError, evaluate_gate, next_stage, stage_outputs
+from .workflow import WorkflowDefinitionError, evaluate_gate, next_stage, stage, stage_output_artifacts, stage_outputs, stages
 
 
 class WorkflowError(RuntimeError):
@@ -150,22 +150,48 @@ class WorkflowCore:
                 raise WorkflowError(f"workflow has no next stage after {item['stage']}")
             stage = stage_definition["id"]
             if stage_definition.get("kind") == "publication":
-                item["stage"] = stage
-                try:
-                    publication = publish_run(self.install_root, self.workspace_root, profile, state, run_id)
-                except (PublicationError, WorkflowDefinitionError) as exc:
-                    item["status"] = "blocked"
-                    state["status"] = "blocked"
-                    state["blocked_reason"] = str(exc)
-                    state["publication"] = {"status": "failed", "error": str(exc)}
+                processing_stages = [candidate for candidate in stages(profile) if candidate.get("kind") != "publication"]
+                final_processing_stage = processing_stages[-1]["id"] if processing_stages else None
+                batch_ready = all(
+                    candidate["status"] == "pending" and candidate.get("stage") == final_processing_stage
+                    for candidate in state["items"]
+                )
+                if not batch_ready:
+                    next_index = next(
+                        (
+                            index
+                            for index, candidate in enumerate(state["items"])
+                            if candidate["status"] == "pending" and candidate.get("stage") != final_processing_stage
+                        ),
+                        None,
+                    )
+                    if next_index is None:
+                        raise WorkflowError("batch is not publication-ready")
+                    state["current_index"] = next_index
+                    item = state["items"][next_index]
+                    stage_definition = next_stage(profile, item["stage"])
+                    if stage_definition is None or stage_definition.get("kind") == "publication":
+                        raise WorkflowError("batch could not advance to a pre-publication stage")
+                    stage = stage_definition["id"]
+                else:
+                    item["stage"] = stage
+                    try:
+                        publication = publish_run(self.install_root, self.workspace_root, profile, state, run_id)
+                    except (PublicationError, WorkflowDefinitionError) as exc:
+                        item["status"] = "blocked"
+                        state["status"] = "blocked"
+                        state["blocked_reason"] = str(exc)
+                        state["publication"] = {"status": "failed", "error": str(exc)}
+                        self._write_state(state)
+                        return {"kind": "blocked", "run_id": run_id, "reason": state["blocked_reason"]}
+                    for candidate in state["items"]:
+                        candidate["stage"] = stage
+                        candidate["status"] = "published"
+                    state["status"] = "complete"
+                    state["publication"] = publication
+                    state["updated_at"] = _now()
                     self._write_state(state)
-                    return {"kind": "blocked", "run_id": run_id, "reason": state["blocked_reason"]}
-                item["status"] = "published"
-                state["status"] = "complete"
-                state["publication"] = publication
-                state["updated_at"] = _now()
-                self._write_state(state)
-                return {"kind": "complete", "run_id": run_id, "publication": publication}
+                    return {"kind": "complete", "run_id": run_id, "publication": publication}
             revision = state["revision"]
             task_id = f"task-{_digest({'run': run_id, 'work': item['work_id'], 'stage': stage, 'revision': revision})[:16]}"
             gate_failures = evaluate_gate(
@@ -213,6 +239,20 @@ class WorkflowCore:
                 validate_result(task, result)
             except TaskError as exc:
                 raise WorkflowError(str(exc)) from exc
+            profile = load_profile(self.install_root, state["profile"])
+            artifacts = ArtifactLayout(self.workspace_root, profile)
+            for output_name, artifact_name in stage_output_artifacts(stage(profile, item["stage"])).items():
+                content = result["outputs"].get(output_name)
+                if not isinstance(content, str) or not content.strip():
+                    continue
+                if artifact_name == "task":
+                    destination = artifacts.task(item["key"])
+                elif artifact_name == "review":
+                    destination = artifacts.review(item["key"])
+                else:
+                    raise WorkflowError(f"unsupported output artifact target: {artifact_name}")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(content, encoding="utf-8")
             self.state.write_json(self.state.result_path(run_id, task_id), result)
             item["status"] = "pending"
             item["result_path"] = str(self.state.result_path(run_id, task_id))

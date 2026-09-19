@@ -78,10 +78,8 @@ def test_core_emits_refine_and_review_tasks(project: Path) -> None:
         "outputs": {"review_markdown": "# Review\n\nNeeds validation."},
     }
     core.submit(run_id, review["task_id"], review_result)
-    (project / "artifacts" / "rhai-feature-tasks").mkdir(parents=True)
-    (project / "artifacts" / "rhai-feature-tasks" / "RHAIRFE-1.md").write_text("## Strategy\n")
-    (project / "artifacts" / "rhai-feature-reviews").mkdir(parents=True)
-    (project / "artifacts" / "rhai-feature-reviews" / "RHAIRFE-1-review.md").write_text("# Review\n")
+    assert (project / "artifacts" / "rhai-feature-tasks" / "RHAIRFE-1.md").read_text() == "## Strategy\n\nA bounded approach."
+    assert (project / "artifacts" / "rhai-feature-reviews" / "RHAIRFE-1-review.md").read_text() == "# Review\n\nNeeds validation."
     complete = core.advance(run_id)
     assert complete["kind"] == "complete"
     assert complete["publication"]["status"] == "complete"
@@ -106,6 +104,34 @@ def test_core_preserves_per_issue_gate_context_for_batch(project: Path) -> None:
     assert set(state["gate_context"]["sources"]) == {"RHAIRFE-10", "RHAIRFE-11"}
     first = core.advance(started["run_id"])
     assert first["issue_key"] == "RHAIRFE-10"
+
+
+def test_core_completes_all_batch_items_before_publication(project: Path) -> None:
+    core = WorkflowCore(project)
+    started = core.start(request("RHAIRFE-10", "RHAIRFE-11"))
+    run_id = started["run_id"]
+
+    for issue_key in ("RHAIRFE-10", "RHAIRFE-11"):
+        refine = core.advance(run_id)
+        assert refine["issue_key"] == issue_key
+        core.submit(run_id, refine["task_id"], {
+            "task_id": refine["task_id"],
+            "run_id": run_id,
+            "revision": refine["expected_revision"],
+            "outputs": {"strategy_markdown": f"## Strategy {issue_key}"},
+        })
+        review = core.advance(run_id)
+        assert review["issue_key"] == issue_key
+        core.submit(run_id, review["task_id"], {
+            "task_id": review["task_id"],
+            "run_id": run_id,
+            "revision": review["expected_revision"],
+            "outputs": {"review_markdown": f"# Review {issue_key}"},
+        })
+
+    complete = core.advance(run_id)
+    assert complete["kind"] == "complete"
+    assert complete["publication"]["status"] == "complete"
 
 
 def test_core_uses_profile_selected_artifact_roots(project: Path) -> None:

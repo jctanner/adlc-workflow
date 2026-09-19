@@ -1,0 +1,141 @@
+api_version: adlc.rubric/v1
+id: rhai-feature-review
+version: 1
+
+# This is the normalized, repository-local copy of the approved strategy
+# scoring rubric. The source remains versioned with strat-creator for audit
+# and calibration comparison; runtime reviewers read this file only.
+source:
+  repository: checkouts/opendatahub-io/strat-creator
+  path: scripts/assess-strat/agent_prompt.md
+  section: Scoring Rubric
+
+subject:
+  kind: rhai-feature-strategy
+  input: strategy_markdown
+
+scale:
+  minimum: 0
+  maximum: 2
+  meaning:
+    0: absent, blocked, incorrect, or untestable
+    1: partial, underspecified, or has material open questions
+    2: complete, credible, and supported by evidence
+
+dimensions:
+  - id: feasibility
+    title: Feasibility
+    question: Can we build this as described?
+    criteria:
+      "0": >-
+        Hard blocker with no fallback, fundamentally infeasible, or impossible
+        to size because critical design questions are deferred. Multiple MVP
+        scope items require work that is not described.
+      "1": >-
+        Technically feasible but missing contingency plans, with unresolved
+        design questions, underspecified critical paths, or dependencies without
+        fallback plans.
+      "2": >-
+        Feasible with a credible effort estimate, specific risk mitigations,
+        no unresolved critical-path blockers, and an estimate matching the work.
+    checks:
+      - effort estimate matches the described work
+      - critical-path questions are resolved
+      - external dependencies have known status and fallback plans
+      - risks have concrete mitigations
+      - multi-team or large efforts identify their risks
+
+  - id: testability
+    title: Testability
+    question: Can we verify this works?
+    criteria:
+      "0": >-
+        Acceptance criteria are aspirational or untestable, the primary
+        criterion is provably untestable, no verification protocol exists, or
+        the primary use case is absent from the criteria.
+      "1": >-
+        Criteria exist but lack concrete thresholds, a defined test matrix, or
+        important edge cases. Most criteria are testable but at least one lacks
+        defined verification logic.
+      "2": >-
+        All criteria have binary pass/fail verification methods, measurable
+        thresholds where applicable, covered edge cases, and objective tests.
+    checks:
+      - every criterion has a concrete verification method
+      - numeric thresholds are present where applicable
+      - edge cases and failure modes are identified
+      - tests are objective and automatable
+      - non-functional requirements cite their source
+
+  - id: scope
+    title: Scope
+    question: Is it right-sized?
+    criteria:
+      "0": >-
+        Bundles three or more independent features, has unbounded scope, has
+        unrelated team ownership, or creates all-or-nothing delivery risk.
+      "1": >-
+        Bundles one or two separable features, underestimates the effort, or
+        contains material scope ambiguity.
+      "2": >-
+        Defines one focused deliverable with finite work items, a matching
+        effort estimate, a bounded component set, and a clear definition of done.
+    checks:
+      - deliverables are finite and enumerated
+      - before and after states are clear
+      - effort matches the described scope
+      - ownership and component boundaries are bounded
+      - out-of-scope items are explicit for large efforts
+
+  - id: architecture
+    title: Architecture
+    question: Are the integration patterns correct?
+    criteria:
+      "0": >-
+        A core architectural assumption is wrong or a fundamental component
+        interaction is misunderstood. Correcting it would change the architecture
+        fundamentally.
+      "1": >-
+        The core integration pattern is sound but has minor dependency gaps or
+        an unresolved cross-component architectural question.
+      "2": >-
+        Components are correctly identified, integration patterns are sound,
+        boundaries are respected, and the strategy aligns with platform patterns.
+    checks:
+      - named components exist in the supplied architecture context
+      - APIs and CRDs are used correctly
+      - integration patterns match documented platform patterns
+      - cross-component coordination is identified where needed
+      - the deployment model is sound
+
+scoring:
+  total:
+    expression: sum(dimensions[*].score)
+    maximum: 8
+  zero_count: count(dimensions[*].score == 0)
+
+verdict:
+  deterministic: true
+  rules:
+    - id: approve
+      when: total >= 6 and zero_count == 0
+      needs_attention: false
+    - id: revise
+      when: total >= 3 and zero_count <= 1
+      needs_attention: true
+    - id: reject
+      when: total < 3 or zero_count >= 2
+      needs_attention: true
+  labels:
+    approve: strat-creator-rubric-pass
+    revise: strat-creator-needs-attention
+    reject: strat-creator-needs-attention
+
+output:
+  required:
+    - title
+    - dimension_scores
+    - total
+    - verdict
+    - evidence
+    - recommendations
