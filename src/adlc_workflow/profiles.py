@@ -13,6 +13,36 @@ class ProfileError(ValueError):
     """Raised when a profile is missing or invalid."""
 
 
+def resolve_profile_path(project_root: str | Path, profile: str | None) -> str:
+    """Resolve a profile name or install-relative path safely.
+
+    A name is the configuration filename stem (for example,
+    ``rhai-feature-creator``), rather than the shared package ``id`` found in
+    every profile document.
+    """
+    root = Path(project_root).absolute()
+    value = profile or "rhai-feature-creator"
+    if not isinstance(value, str) or not value.strip():
+        raise ProfileError("profile must be a non-empty name or path")
+    candidate = Path(value.strip())
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise ProfileError("profile path must stay within project root")
+    if candidate.suffix:
+        relative = candidate
+    elif len(candidate.parts) == 1:
+        relative = Path("config") / f"{candidate.name}.yaml"
+    else:
+        relative = candidate.with_suffix(".yaml")
+    path = root / relative
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise ProfileError("profile path must stay within project root") from exc
+    if not path.is_file():
+        raise ProfileError(f"profile does not exist: {relative}")
+    return str(relative)
+
+
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _LIFECYCLE_RE = re.compile(r"^adlc-[a-z0-9-]+-v[0-9]+$")
 
@@ -44,6 +74,25 @@ def validate_profile(project_root: str | Path, value: dict[str, Any]) -> None:
         raise ProfileError("profile id must be a lowercase kebab-case name")
     if not isinstance(value.get("lifecycle"), str) or not _LIFECYCLE_RE.fullmatch(value["lifecycle"]):
         raise ProfileError("profile lifecycle must match adlc-<name>-vN")
+
+    controller = value.get("controller", {})
+    if controller is not None:
+        if not isinstance(controller, dict):
+            raise ProfileError("profile controller must be a mapping")
+        for field in ("reviewer_parallelism", "max_attempts"):
+            candidate = controller.get(field)
+            if candidate is not None and (
+                not isinstance(candidate, int) or isinstance(candidate, bool) or candidate <= 0
+            ):
+                raise ProfileError(f"controller.{field} must be a positive integer")
+        timeout = controller.get("task_timeout_seconds")
+        if timeout is not None and (
+            not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0
+        ):
+            raise ProfileError("controller.task_timeout_seconds must be positive")
+        model = controller.get("model")
+        if model is not None and (not isinstance(model, str) or not model.strip()):
+            raise ProfileError("controller.model must be a non-empty string")
 
     sources = value.get("context_sources", [])
     if not isinstance(sources, list):
@@ -184,15 +233,12 @@ def load_profile(project_root: str | Path, profile_path: str) -> dict[str, Any]:
     # marketplace intentionally links cached plugin files back to the mounted
     # install, and those links are still part of the selected install root.
     root = Path(project_root).absolute()
-    path = root / profile_path
-    try:
-        path.relative_to(root)
-    except ValueError as exc:
-        raise ProfileError("profile path must stay within project root") from exc
+    resolved_profile = resolve_profile_path(root, profile_path)
+    path = root / resolved_profile
     try:
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
-        raise ProfileError(f"cannot load profile {profile_path}: {exc}") from exc
+        raise ProfileError(f"cannot load profile {resolved_profile}: {exc}") from exc
     if not isinstance(value, dict):
         raise ProfileError("profile must contain a mapping")
     for key in ("api_version", "id", "lifecycle"):

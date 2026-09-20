@@ -16,10 +16,12 @@ Run the prewritten review planner for the current issue and epic profile:
   --profile config/rhai-epic-creator.yaml
 ```
 
-Launch every returned assignment with the native Task/Agent tool before waiting
-when `execution` is `parallel`. Use each assignment's task object unchanged,
-including `run_in_background: true`. After all assignments complete, run the
-planner with `--check --wait-seconds 30`; do not aggregate partial output.
+Emit this warning before dispatch: `agent-led mode does not enforce reviewer
+parallelism; running reviewers serially`. Dispatch each returned assignment
+with the native Task/Agent tool, wait for it to succeed, then dispatch the
+next. Use each assignment's task object unchanged except set
+`run_in_background: false` when present. After all assignments complete, run
+the planner with `--check --wait-seconds 30`; do not aggregate partial output.
 
 Then invoke the checked-in aggregator, which reads the profile's
 `review.aggregate.inputs`, validates its `schema`, and applies its `renderer`:

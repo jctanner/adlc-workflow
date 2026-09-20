@@ -15,10 +15,18 @@ quote any of its sections.
 
 Use only the installed plugin and runtime workspace:
 
-1. Fetch the issue with the executable command
-   `$CLAUDE_PLUGIN_ROOT/scripts/adlc-jira-issue "$issue_key"`. Execute it
-   directly; do not prefix it with `bash`, and do not replace it with curl or
-   inline Python.
+1. Choose the authoritative source input.
+
+   - **Controller handoff:** the invoking prompt provides an exact `Captured
+     source request` path. Read that file and use its `source_issues` snapshot
+     for the issue summary, description, and fields. It is authoritative for
+     this task. Do **not** call `adlc-jira-issue`, Jira, curl, or any other
+     source-fetch command in this mode.
+   - **Agent-led fallback:** if no captured-source path was provided, fetch the
+     issue with `$CLAUDE_PLUGIN_ROOT/scripts/adlc-jira-issue "$issue_key"`.
+     Execute it directly; do not prefix it with `bash`, and do not replace it
+     with curl or inline Python.
+
 2. Resolve the active profile's declared refine template with the prewritten
    helper, then pass its returned absolute path to the Read tool:
 

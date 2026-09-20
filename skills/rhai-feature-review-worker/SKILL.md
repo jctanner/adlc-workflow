@@ -1,6 +1,6 @@
 ---
 name: rhai-feature-review-worker
-description: Dispatch concurrent reviewer agents and aggregate one ADLC feature review in the parent session.
+description: Dispatch serial reviewer agents and aggregate one ADLC feature review in the parent session.
 user-invocable: false
 allowed-tools: Bash, Read, Write, Task, Agent, TaskOutput
 ---
@@ -24,13 +24,14 @@ and `--profile <install-relative-profile>`.
    `agent:` references to Claude's plugin-qualified agent names and provide
    absolute input/output paths. Keep this JSON in context; do not rewrite it
    or create a launcher script.
-2. For `execution: parallel`, launch **every** assignment using the native
-   Task tool (named Agent in some versions). Use each assignment's `task`
-   object as the tool arguments, including `run_in_background: true`.
-   Launch all assignments before waiting on any result. Do not use Skill
+2. Emit this warning before dispatch: `agent-led mode does not enforce reviewer
+   parallelism; running reviewers serially`. Regardless of the profile's
+   `execution` value, dispatch one assignment at a time with the native Task
+   tool (named Agent in some versions), wait for it to succeed, then dispatch
+   the next. Use each assignment's `task` object unchanged, except set
+   `run_in_background: false` when that field is present. Do not use Skill
    calls for individual reviewers, wrap them in general-purpose agents, or
-   invoke a second scoring agent. For `execution: sequential`, dispatch each
-   assignment and wait for it before dispatching the next.
+   invoke a second scoring agent.
 3. Collect the completion of every launched agent using task notifications or
    the available task-result tool. A spawn refusal or failed reviewer is a
    review failure; report it rather than silently substituting your own review.

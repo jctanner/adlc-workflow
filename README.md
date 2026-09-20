@@ -70,6 +70,9 @@ make -C adlc-workflow integration
 
 The test mounts Google ADC read-only and never prints its contents. Override
 `ADLC_AGENT_IMAGE` or `ADLC_CLAUDE_MODEL` when using a different image/model.
+Set `ADLC_INTEGRATION_CONTROLLER=handoff` to exercise the Python handoff
+controller through the same plugin entrypoint; its timeout is increased for
+the child worker subprocesses.
 
 ## Podman Compose
 
@@ -105,6 +108,37 @@ and tees combined Claude output to `/workspace/adlc-workflow-run.log`:
 podman-compose exec -T claude \
   /home/evaluator/.claude/plugins/adlc-workflow/scripts/run-example-workflow.sh
 podman-compose exec claude tail -f /workspace/adlc-workflow-run.log
+```
+
+Set `ADLC_CONTROLLER_MODE=handoff` to run the same example through the Python
+controller via the outer `/adlc-workflow` skill. The skill delegates once to
+`adlc-workflow handoff` and reports its terminal result. Set it to `cli` to
+invoke that deterministic controller directly, without an outer Claude
+session. `ADLC_HANDOFF_DANGEROUSLY_SKIP_PERMISSIONS=1` is the explicit
+local-container policy that lets child workers write their assigned runtime
+artifacts. The default remains `claude`.
+
+In `cli` mode, set `ADLC_CONTROLLER_JSON=1` for a live normalized JSONL stream
+on stdout. It includes deterministic controller events and tagged raw Claude
+worker stream events; a private copy is retained at
+`.adlc/state/runs/<run-id>/events.jsonl`. Without it, the same events are
+rendered for humans.
+
+Batch items remain sequential by default. Set `ADLC_ITEM_PARALLELISM=2` to
+claim and process two tickets concurrently; each ticket still honors the
+profile's reviewer parallelism, and publication remains a barrier after all
+selected tickets finish.
+
+The controller can also be invoked without an outer Claude process when the
+plugin install is available:
+
+```sh
+/home/evaluator/.claude/plugins/adlc-workflow/scripts/adlc-workflow handoff \
+  --workspace /workspace \
+  --profile rhai-feature-creator \
+  --item-parallelism 2 \
+  --dangerously-skip-permissions \
+  RHAIRFE-1
 ```
 
 Or open a shell inside the agent container:

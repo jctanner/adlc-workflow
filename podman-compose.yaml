@@ -43,6 +43,8 @@ services:
     environment:
       CLAUDE_PLUGIN_ROOT: /home/evaluator/.claude/plugins/adlc-workflow
       ADLC_CLAUDE_MODEL: ${ADLC_CLAUDE_MODEL:-claude-haiku-4-5}
+      ADLC_CONTROLLER_MODE: ${ADLC_CONTROLLER_MODE:-claude}
+      ADLC_HANDOFF_DANGEROUSLY_SKIP_PERMISSIONS: ${ADLC_HANDOFF_DANGEROUSLY_SKIP_PERMISSIONS:-1}
       ADLC_ISSUE_KEY: ${ADLC_ISSUE_KEY:-RHAIRFE-1}
       ADLC_JIRA_TOKEN: ${JIRA_TOKEN:-jira-emulator-default-token}
       ADLC_JIRA_URL: http://jira-emulator:8080

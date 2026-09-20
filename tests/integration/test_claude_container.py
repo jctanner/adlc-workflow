@@ -63,6 +63,9 @@ def test_claude_plugin_against_jira_emulator(tmp_path: Path) -> None:
         pytest.skip(f"Google ADC file not found: {ADC}")
 
     image = os.getenv("ADLC_AGENT_IMAGE", "adlc-claude-task-runner:local")
+    controller_mode = os.getenv("ADLC_INTEGRATION_CONTROLLER", "claude")
+    if controller_mode not in {"claude", "handoff"}:
+        pytest.fail("ADLC_INTEGRATION_CONTROLLER must be claude or handoff")
     if subprocess.run(["podman", "image", "exists", image], check=False).returncode != 0:
         pytest.skip(f"Podman image not found: {image}; build adlc-workflow/Dockerfile.claude first")
 
@@ -106,12 +109,19 @@ def test_claude_plugin_against_jira_emulator(tmp_path: Path) -> None:
         credentials_target = "/home/evaluator/.config/gcloud/application_default_credentials.json"
         vertex_vars = _vertex_environment()
         vertex_vars["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_target
+        prompt = f"/adlc-workflow:adlc-workflow {issue_key}"
+        if controller_mode == "handoff":
+            prompt = (
+                "/adlc-workflow:adlc-workflow --handoff "
+                "--profile=rhai-feature-creator --dangerously-skip-permissions "
+                f"{issue_key}"
+            )
         command = (
             "set -eu; mkdir -p /home/evaluator/.claude/plugins; "
             "cp -a /tmp/adlc-workflow /home/evaluator/.claude/plugins/adlc-workflow; "
             "exec claude --dangerously-skip-permissions "
             "--plugin-dir /home/evaluator/.claude/plugins/adlc-workflow "
-            f"--model ${{ADLC_CLAUDE_MODEL:-claude-haiku-4-5}} -p {json.dumps('/adlc-workflow:adlc-workflow ' + issue_key)}"
+            f"--model ${{ADLC_CLAUDE_MODEL:-claude-haiku-4-5}} -p {json.dumps(prompt)}"
         )
         podman = ["podman", "run", "--rm", "--name", f"adlc-workflow-integration-{os.getpid()}",
                   "--userns=keep-id", "--workdir", "/workspace",
@@ -134,7 +144,7 @@ def test_claude_plugin_against_jira_emulator(tmp_path: Path) -> None:
                 text=True,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=300,
+                timeout=900 if controller_mode == "handoff" else 300,
             )
         if result.returncode != 0:
             log_tail = log_path.read_text(encoding="utf-8", errors="replace")[-8000:]

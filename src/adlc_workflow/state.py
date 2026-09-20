@@ -7,12 +7,21 @@ import json
 import os
 import tempfile
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
 
 class StateError(RuntimeError):
     """Raised for missing or malformed private state."""
+
+
+@dataclass
+class ExecutionLease:
+    """Exclusive workspace-controller lease held for one handoff run."""
+
+    path: Path
+    handle: Any
 
 
 class StateStore:
@@ -77,3 +86,19 @@ class StateStore:
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @contextmanager
+    def execution_lease(self) -> Iterator[ExecutionLease]:
+        """Prevent two handoff controllers from sharing one workspace."""
+        path = self.root / ".controller.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a+")
+        try:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise StateError(f"workspace is already controlled: {path}") from exc
+            yield ExecutionLease(path, handle)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()

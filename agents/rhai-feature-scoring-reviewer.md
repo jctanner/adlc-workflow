@@ -22,6 +22,27 @@ overlays used.
 
 Include a score and concise evidence for each dimension in the supplied rubric, the total, and a verdict. Preserve the rubric's scale and thresholds; do not invent a different scale.
 
+End the document with this exact machine-readable score table, replacing the
+placeholders with integers. The total **must** include the denominator; do not
+write a bare total such as `| Total | 5 |`.
+
+```markdown
+## Deterministic Score
+
+| Dimension | Score |
+|-----------|-------|
+| Feasibility | <0-2>/2 |
+| Testability | <0-2>/2 |
+| Scope | <0-2>/2 |
+| Architecture | <0-2>/2 |
+| **Total** | **<total>/<maximum>** |
+
+**Verdict:** <APPROVE|REVISE|REJECT> (score: <total>/<maximum>; zero-count: <count>)
+```
+
+The controller derives the authoritative verdict from this table and the
+rubric. Your prose verdict must agree with that deterministic rule.
+
 Write your complete review only to the assigned output path, including the
 issue key, findings, severity, evidence, and concrete recommendations. Keep
 the review focused on your assigned dimension. Do not read other reviewers'

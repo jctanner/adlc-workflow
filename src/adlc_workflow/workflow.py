@@ -145,13 +145,14 @@ def _evaluate_issue(subject: str, issue: dict[str, Any], requirements: dict[str,
     expected_project = requirements.get("project")
     if expected_project is not None and project not in _values(expected_project):
         failures.append(f"gate.{subject}.project: expected {expected_project!r}, got {project!r}")
-    issue_type = (fields.get("issuetype") or {}).get("name") if isinstance(fields.get("issuetype"), dict) else fields.get("issuetype")
+    issue_type = _field_value(fields.get("issuetype"))
     expected_type = requirements.get("issue_type")
     if expected_type is not None and issue_type not in _values(expected_type):
         failures.append(f"gate.{subject}.issue_type: expected {expected_type!r}, got {issue_type!r}")
     labels = fields.get("labels", [])
     if not isinstance(labels, list):
         labels = [labels]
+    labels = [_field_value(label) for label in labels]
     label_rules = requirements.get("labels", {})
     if not isinstance(label_rules, dict):
         raise WorkflowDefinitionError(f"gate.{subject}.labels must be a mapping")
@@ -170,8 +171,9 @@ def _evaluate_issue(subject: str, issue: dict[str, Any], requirements: dict[str,
     for name, rule in field_rules.items():
         if not isinstance(rule, dict):
             rule = {"equals": rule}
-        value = fields.get(name)
-        if "exists" in rule and bool(rule["exists"]) != (name in fields and value not in (None, "", [])):
+        raw_value = fields.get(name)
+        value = _field_value(raw_value)
+        if "exists" in rule and bool(rule["exists"]) != (name in fields and raw_value not in (None, "", [])):
             failures.append(f"gate.{subject}.fields.{name}: exists={rule['exists']} failed")
         if "equals" in rule and value != rule["equals"]:
             failures.append(f"gate.{subject}.fields.{name}: expected {rule['equals']!r}, got {value!r}")
@@ -184,3 +186,13 @@ def _evaluate_issue(subject: str, issue: dict[str, Any], requirements: dict[str,
 
 def _values(value: Any) -> list[Any]:
     return value if isinstance(value, list) else [value]
+
+
+def _field_value(value: Any) -> Any:
+    """Normalize Jira's common named field objects for gate comparisons."""
+    if not isinstance(value, dict):
+        return value
+    for key in ("name", "value", "key", "id"):
+        if key in value and value[key] is not None:
+            return value[key]
+    return value

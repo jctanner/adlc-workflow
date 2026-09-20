@@ -14,7 +14,7 @@ from .admission import AdmissionError, admit_request, enforce_profile_permission
 from .plugins import PluginError, activate_plugins
 from .context import ContextError, prepare_context
 from .artifacts import ArtifactLayout, ArtifactLayoutError
-from .profiles import load_profile, refine_template_path
+from .profiles import load_profile, refine_template_path, resolve_profile_path
 from .selection import SelectionError, freeze_selection, normalize_request
 from .state import StateError, StateStore
 from .tasks import TaskError, validate_result
@@ -58,7 +58,18 @@ class WorkflowCore:
 
     def start(self, request: dict[str, Any], profile_path: str = "config/rhai-feature-creator.yaml") -> dict[str, Any]:
         try:
-            profile = load_profile(self.install_root, profile_path)
+            configured_profile = resolve_profile_path(self.install_root, profile_path)
+            request_kwargs = request.get("kwargs", {})
+            if not isinstance(request_kwargs, dict):
+                raise WorkflowError("request kwargs must be an object")
+            requested_profile = request_kwargs.get("profile")
+            if requested_profile is not None:
+                request_profile = resolve_profile_path(self.install_root, requested_profile)
+                if request_profile != configured_profile:
+                    raise WorkflowError(
+                        f"request profile {request_profile} conflicts with configured profile {configured_profile}"
+                    )
+            profile = load_profile(self.install_root, configured_profile)
             workflow_definition = profile.get("workflow")
             workflow_stages = workflow_definition.get("stages", []) if isinstance(workflow_definition, dict) else []
             if any(isinstance(candidate, dict) and candidate.get("id") == "refine"
@@ -70,8 +81,7 @@ class WorkflowCore:
             )
             enforce_profile_permissions(profile, admission)
             artifacts = ArtifactLayout(self.workspace_root, profile)
-            normalized = normalize_request(request, default_profile=profile_path)
-            request_kwargs = request.get("kwargs", {})
+            normalized = normalize_request(request, default_profile=configured_profile)
             context_components = request_kwargs.get("context_components", []) if isinstance(request_kwargs, dict) else []
             if not isinstance(context_components, list) or not all(isinstance(value, str) for value in context_components):
                 raise WorkflowError("kwargs.context_components must be a list of strings")
@@ -120,6 +130,13 @@ class WorkflowCore:
         except PluginError as exc:
             raise WorkflowError(str(exc)) from exc
         selection = freeze_selection(normalized)
+        selection_metadata = kwargs.get("selection_metadata")
+        if selection_metadata is not None:
+            if not isinstance(selection_metadata, dict):
+                raise WorkflowError("kwargs.selection_metadata must be an object")
+            for key in ("selector", "source", "exclusion_reasons"):
+                if key in selection_metadata:
+                    selection[key] = selection_metadata[key]
         first_stage = next_stage(profile, None)
         if first_stage is None:
             raise WorkflowError("profile workflow has no stages")
@@ -140,7 +157,7 @@ class WorkflowCore:
         if self.state.state_path(run_id).exists():
             raise WorkflowError(f"run already exists: {run_id}")
         selection["run_id"] = run_id
-        selection["profile"] = profile_path
+        selection["profile"] = configured_profile
         public_selection = artifacts.evidence_path("selection")
         self.state.write_json(public_selection, selection)
         request_path = self.state.request_path(run_id)
@@ -152,7 +169,7 @@ class WorkflowCore:
         state = {
             "schema_version": 1,
             "run_id": run_id,
-            "profile": profile_path,
+            "profile": configured_profile,
             "lifecycle": profile["lifecycle"],
             "mode": normalized.mode,
             "identity": normalized.identity,
@@ -225,13 +242,24 @@ class WorkflowCore:
                     stage = stage_definition["id"]
                 else:
                     item["stage"] = stage
+                    state["publication"] = {"status": "running", "receipts": []}
+
+                    def persist_receipt(receipt: dict[str, Any]) -> None:
+                        state["publication"]["receipts"].append(receipt)
+                        state["updated_at"] = _now()
+                        self._write_state(state)
+
                     try:
-                        publication = publish_run(self.install_root, self.workspace_root, profile, state, run_id)
+                        publication = publish_run(
+                            self.install_root, self.workspace_root, profile, state, run_id,
+                            on_receipt=persist_receipt,
+                        )
                     except (PublicationError, WorkflowDefinitionError) as exc:
                         item["status"] = "blocked"
                         state["status"] = "blocked"
                         state["blocked_reason"] = str(exc)
-                        state["publication"] = {"status": "failed", "error": str(exc)}
+                        receipts = state.get("publication", {}).get("receipts", [])
+                        state["publication"] = {"status": "failed", "error": str(exc), "receipts": receipts}
                         self._write_state(state)
                         return {"kind": "blocked", "run_id": run_id, "reason": state["blocked_reason"]}
                     for candidate in state["items"]:
@@ -277,6 +305,80 @@ class WorkflowCore:
             state["updated_at"] = _now()
             self._write_state(state)
             return {"kind": "task", **task}
+
+    def claim(self, run_id: str) -> dict[str, Any]:
+        """Atomically claim one non-publication task for a parallel scheduler.
+
+        This leaves the original ``advance`` protocol intact for agent-led and
+        sequential callers. A claimed task is immediately persisted as
+        ``waiting_for_result``, so a second scheduler cannot receive it.
+        Publication is deliberately never claimed: it remains a batch barrier
+        serviced by ``advance`` after every processing task has submitted.
+        """
+        with self.state.lock(run_id):
+            state = self._read(run_id)
+            if state["status"] == "complete":
+                return {"kind": "complete", "run_id": run_id, "state": state}
+            if state["status"] == "blocked":
+                return {"kind": "blocked", "run_id": run_id, "reason": state["blocked_reason"]}
+            profile = load_profile(self.install_root, state["profile"])
+            for item in state["items"]:
+                if item["status"] != "pending":
+                    continue
+                stage_definition = next_stage(profile, item["stage"])
+                if stage_definition is None:
+                    raise WorkflowError(f"workflow has no next stage after {item['stage']}")
+                if stage_definition.get("kind") == "publication":
+                    continue
+                task = self._claim_task(state, item, stage_definition)
+                self._write_state(state)
+                return {"kind": "task", **task}
+            if any(item["status"] == "waiting_for_result" for item in state["items"]):
+                return {"kind": "idle", "run_id": run_id}
+            return {"kind": "publication_ready", "run_id": run_id}
+
+    def _claim_task(
+        self,
+        state: dict[str, Any],
+        item: dict[str, Any],
+        stage_definition: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist one claimed processing task while the run lock is held."""
+        run_id = state["run_id"]
+        stage_id = stage_definition["id"]
+        gate_failures = evaluate_gate(
+            stage_definition,
+            self._gate_context(state.get("gate_context", {}), item["key"]),
+        )
+        if gate_failures:
+            state["status"] = "blocked"
+            state["blocked_reason"] = f"stage {stage_id} gate failed: {'; '.join(gate_failures)}"
+            state["updated_at"] = _now()
+            self._write_state(state)
+            raise WorkflowError(state["blocked_reason"])
+        revision = state["revision"]
+        task_id = f"task-{_digest({'run': run_id, 'work': item['work_id'], 'stage': stage_id, 'revision': revision})[:16]}"
+        task = {
+            "schema_version": 1,
+            "task_id": task_id,
+            "run_id": run_id,
+            "work_id": item["work_id"],
+            "issue_key": item["key"],
+            "stage": stage_id,
+            "expected_revision": revision,
+            "result_path": str(self.state.result_path(run_id, item["work_id"], task_id)),
+            "allowed_outputs": stage_outputs(stage_definition),
+            "required_outputs": stage_outputs(stage_definition),
+            "worker": stage_definition.get("worker"),
+        }
+        task_path = self.state.task_path(run_id, item["work_id"], task_id)
+        if task_path.exists():
+            task = self.state.read_json(task_path)
+        else:
+            self.state.write_json(task_path, task)
+        item.update({"status": "waiting_for_result", "stage": stage_id, "task_id": task_id})
+        state["updated_at"] = _now()
+        return task
 
     def submit(self, run_id: str, task_id: str, result: dict[str, Any]) -> dict[str, Any]:
         with self.state.lock(run_id):

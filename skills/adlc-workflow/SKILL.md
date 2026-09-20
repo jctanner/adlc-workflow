@@ -9,6 +9,34 @@ Run the deterministic ADLC workflow for one or more explicitly supplied Jira
 issues. The same run processes each selected issue in order; never use shared
 flat task or result aliases when more than one issue is selected.
 
+When the first argument is `--handoff`, do not perform the interactive
+controller loop below. Invoke the installed controller once, wait for its
+terminal JSON response, and report that response without reproducing worker
+documents:
+
+```bash
+"$CLAUDE_PLUGIN_ROOT/scripts/adlc-workflow" handoff --workspace /workspace \
+  --profile <profile-name> <issue-key>...
+```
+
+For example:
+
+```text
+/adlc-workflow:adlc-workflow --handoff --profile=rhai-feature-creator RHAIRFE-1
+```
+
+Handoff accepts a profile with or without explicit issue keys. A profile-only
+handoff freezes one discovered batch before it starts. Pass
+`--dangerously-skip-permissions` only when the caller has explicitly selected
+that child-process policy. The normal invocation below remains the
+Claude-driven controller.
+
+`--handoff` is consumed by this skill. Do not pass it to the controller command;
+preserve the supplied profile, issue keys, and any other handoff options.
+Run that command in the foreground with the Bash tool timeout set to at least
+900000 milliseconds. Do not background it, schedule a wakeup, or return a
+progress report before the controller returns its terminal JSON.
+
 The positional arguments are Jira issue keys, for example
 `/adlc-workflow:adlc-workflow RHAIRFE-1 RHAIRFE-2`. Use the installed plugin checkout as the source of
 the workflow package and the current working directory as the runtime project.

@@ -5,6 +5,13 @@ id: adlc-workflow
 # Core lifecycle implementation selected by this profile.
 lifecycle: adlc-feature-v1
 
+# Defaults for the deterministic handoff controller. Environment or CLI values
+# may supply the model and override these execution limits.
+controller:
+  reviewer_parallelism: 5
+  task_timeout_seconds: 900
+  max_attempts: 1
+
 # External and repository-backed context made available to refinement/review.
 context_sources:
   - id: rhai-architecture-context

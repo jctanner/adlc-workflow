@@ -15,6 +15,52 @@ class JiraAdapterError(RuntimeError):
     """Raised when a Jira effect cannot be applied or verified."""
 
 
+class JiraClient:
+    """Read-only Jira input and selection adapter."""
+
+    def __init__(self, base_url: str | None = None, token: str | None = None):
+        self.base_url = (base_url or os.environ.get("ADLC_JIRA_URL", "")).rstrip("/")
+        self.token = token or os.environ.get("ADLC_JIRA_TOKEN", "")
+        if not self.base_url or not self.token:
+            raise JiraAdapterError("ADLC_JIRA_URL and ADLC_JIRA_TOKEN are required")
+
+    def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+        body = None if payload is None else json.dumps(payload).encode("utf-8")
+        request = Request(
+            f"{self.base_url}{path}", data=body, method=method,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                raw = response.read()
+        except (HTTPError, URLError, TimeoutError) as exc:
+            raise JiraAdapterError(f"Jira {method} {path} failed: {exc}") from exc
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise JiraAdapterError(f"Jira returned invalid JSON for {method} {path}") from exc
+
+    def issue(self, issue_key: str) -> dict[str, Any]:
+        value = self.request("GET", f"/rest/api/2/issue/{quote(issue_key, safe='')}")
+        if not isinstance(value, dict):
+            raise JiraAdapterError(f"Jira returned an invalid issue for {issue_key}")
+        return value
+
+    def search(self, jql: str, *, start_at: int = 0, max_results: int = 50) -> dict[str, Any]:
+        value = self.request("POST", "/rest/api/2/search", {
+            "jql": jql, "startAt": start_at, "maxResults": max_results,
+        })
+        if not isinstance(value, dict) or not isinstance(value.get("issues", []), list):
+            raise JiraAdapterError("Jira returned an invalid search response")
+        return value
+
+
 class JiraPublisher:
     def __init__(self, base_url: str | None = None, token: str | None = None, mapping: dict[str, Any] | None = None):
         self.base_url = (base_url or os.environ.get("ADLC_JIRA_URL", "")).rstrip("/")

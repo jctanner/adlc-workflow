@@ -1,6 +1,6 @@
 ---
 name: rhai-request-review-worker
-description: Dispatch parallel RHAIRFE reviewers and aggregate their request review.
+description: Dispatch serial RHAIRFE reviewers and aggregate their request review.
 user-invocable: false
 allowed-tools: Bash, Read, Write, Task, Agent, TaskOutput
 ---
@@ -16,9 +16,11 @@ Run the prewritten review planner for the current issue and request profile:
   --profile config/rhai-request-creator.yaml
 ```
 
-Launch every returned assignment with the native Task/Agent tool before waiting
-on any result when `execution` is `parallel`. Use each assignment's task object
-unchanged, including `run_in_background: true`. Do not wrap reviewers in a
+Emit this warning before dispatch: `agent-led mode does not enforce reviewer
+parallelism; running reviewers serially`. Dispatch each returned assignment
+with the native Task/Agent tool, wait for it to succeed, then dispatch the
+next. Use each assignment's task object unchanged except set
+`run_in_background: false` when present. Do not wrap reviewers in a
 general-purpose subagent or invoke them through Skill calls.
 
 After all reviewer tasks complete, run the planner again with `--check

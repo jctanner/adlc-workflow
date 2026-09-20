@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -25,7 +25,15 @@ def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def publish_run(install_root: Path, workspace_root: Path, profile: dict[str, Any], state: dict[str, Any], run_id: str) -> dict[str, Any]:
+def publish_run(
+    install_root: Path,
+    workspace_root: Path,
+    profile: dict[str, Any],
+    state: dict[str, Any],
+    run_id: str,
+    *,
+    on_receipt: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     mode = state.get("mode", "local")
     items = state.get("items", [])
     artifacts = ArtifactLayout(workspace_root, profile)
@@ -55,21 +63,30 @@ def publish_run(install_root: Path, workspace_root: Path, profile: dict[str, Any
                     raise PublicationError(f"deterministic score is invalid: {score_path}") from exc
                 strategy = artifacts.task(item["key"])
                 review = artifacts.review(item["key"])
-                receipts.append(JiraPublisher(mapping=mapping).publish(
+                receipt = JiraPublisher(mapping=mapping).publish(
                     item["key"], run_id, item["work_id"], str(strategy), str(review), verdict
-                ))
+                )
+                receipts.append(receipt)
+                if on_receipt:
+                    on_receipt(receipt)
         if mode == "eval" and "archive" in configured:
-            receipts.append(EvalPublisher().publish(workspace_root, run_id, items, profile))
+            receipt = EvalPublisher().publish(workspace_root, run_id, items, profile)
+            receipts.append(receipt)
+            if on_receipt:
+                on_receipt(receipt)
         elif "archive" in configured:
             admission = state.get("admission", {})
-            receipts.append(LocalArchivePublisher().publish(
+            receipt = LocalArchivePublisher().publish(
                 workspace_root,
                 run_id,
                 items,
                 profile,
                 mode=mode,
                 trusted=admission.get("trusted", False),
-            ))
+            )
+            receipts.append(receipt)
+            if on_receipt:
+                on_receipt(receipt)
         unknown = set(configured) - {"jira", "archive"}
         if unknown:
             raise PublicationError(f"unknown publication adapters: {sorted(unknown)}")

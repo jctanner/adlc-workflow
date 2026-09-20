@@ -5,6 +5,12 @@ id: adlc-workflow
 # Core lifecycle implementation selected by this profile.
 lifecycle: adlc-initiative-v1
 
+# Defaults for the deterministic handoff controller.
+controller:
+  reviewer_parallelism: 3
+  task_timeout_seconds: 900
+  max_attempts: 1
+
 # Architecture and repository context used by initiative refinement/review.
 context_sources:
   - id: rhai-architecture-context

@@ -23,24 +23,37 @@ _VERDICT_SCORE_RE = re.compile(
     r"(?i)\bverdict\b[^\n]*?\bscore\s*:\s*\**(\d+)\s*/\s*(\d+)"
 )
 _DIMENSION_RE = re.compile(r"^\s*\|[^|]+\|\s*\**(\d+)\s*/\s*\d+\s*\|")
+_TOTAL_BARE_TABLE_RE = re.compile(
+    r"(?im)^\s*\|\s*(?:\*\*)?total(?:\*\*)?\s*\|\s*(?:\*\*)?(\d+)(?:\*\*)?\s*\|"
+)
+_DIMENSION_HEADING_RE = re.compile(
+    r"(?im)^#{2,6}\s+(?:\d+\.\s+)?[^\n]*?\bscore\s*:\s*(\d+)\b"
+)
 
 
-def _score_document(path: Path) -> tuple[int, int, int]:
+def _score_document(path: Path, *, expected_maximum: int | None = None) -> tuple[int, int, int]:
     content = path.read_text(encoding="utf-8")
     # The deterministic contract prefers an explicit total row. The scoring
     # reviewer also emits its required overall score in the verdict summary,
     # e.g. `Verdict: REVISE ... (score: 6/8)`. Accept that equivalent form
     # without mistaking the first individual dimension score for the total.
     match = _TOTAL_RE.search(content) or _VERDICT_SCORE_RE.search(content)
-    if not match:
-        raise ScoringError(f"reviewer output has no parseable total: {path}")
-    total, maximum = int(match.group(1)), int(match.group(2))
+    if match:
+        total, maximum = int(match.group(1)), int(match.group(2))
+    else:
+        bare_total = _TOTAL_BARE_TABLE_RE.search(content)
+        if bare_total is None or expected_maximum is None:
+            raise ScoringError(f"reviewer output has no parseable total: {path}")
+        total, maximum = int(bare_total.group(1)), expected_maximum
     if total < 0 or maximum <= 0 or total > maximum:
         raise ScoringError(f"reviewer output has invalid total: {path}")
-    zero_count = sum(
-        1 for line in content.splitlines()
-        if "|" in line and "total" not in line.lower() and (m := _DIMENSION_RE.match(line)) and int(m.group(1)) == 0
-    )
+    dimension_scores = [
+        int(match.group(1)) for line in content.splitlines()
+        if "|" in line and "total" not in line.lower() and (match := _DIMENSION_RE.match(line))
+    ]
+    if not dimension_scores:
+        dimension_scores = [int(match.group(1)) for match in _DIMENSION_HEADING_RE.finditer(content)]
+    zero_count = sum(score == 0 for score in dimension_scores)
     return total, maximum, zero_count
 
 
@@ -80,14 +93,17 @@ def score_review(
     rubric = yaml.safe_load(rubric_path.read_text(encoding="utf-8"))
     if not isinstance(rubric, dict) or not isinstance(rubric.get("verdict", {}).get("rules"), list):
         raise ScoringError(f"rubric has no deterministic verdict rules: {rubric_path}")
+    maximum = rubric.get("scoring", {}).get("total", {}).get("maximum") if isinstance(rubric.get("scoring"), dict) else None
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum <= 0:
+        raise ScoringError(f"rubric has no valid scoring.total.maximum: {rubric_path}")
 
     scores = {}
     for reviewer_id in inputs:
         path = Path(assignments[reviewer_id]["output_path"])
         if not path.is_file() or not path.read_text(encoding="utf-8").strip():
             raise ScoringError(f"scoring input is missing or empty: {path}")
-        total, maximum, zero_count = _score_document(path)
-        scores[reviewer_id] = {"total": total, "maximum": maximum, "zero_count": zero_count}
+        total, parsed_maximum, zero_count = _score_document(path, expected_maximum=maximum)
+        scores[reviewer_id] = {"total": total, "maximum": parsed_maximum, "zero_count": zero_count}
 
     primary = scores[inputs[0]]
     verdict_rule = next(
