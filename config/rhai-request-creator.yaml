@@ -1,12 +1,17 @@
+# Profile schema and compatibility version.
 api_version: adlc.profile/v1
+# Shared workflow package identity.
 id: adlc-workflow
+# Core lifecycle implementation selected by this profile.
 lifecycle: adlc-request-v1
 
+# External and repository-backed context made available to refinement/review.
 context_sources:
   - id: rhai-architecture-context
     repo: https://github.com/opendatahub-io/architecture-context.git
     ref: main
     destination: .context/architecture-context
+    version_file: LATEST_VERSION
     include:
       - architecture/rhoai-*/**
       - overlays/*.md
@@ -14,15 +19,137 @@ context_sources:
       - '**/README.md'
     usage: context/rhai-architecture-context/usage.md
 
-template:
-  path: templates/rhai-request-creator/request-template.md
+# Ordered request lifecycle. RHAIRFE issues are refined, quality-reviewed, and
+# published back through the configured request mapping.
+workflow:
+  stages:
+    # Request refinement preserves the PM-authored business need and adds
+    # engineering-neutral strategy context for downstream feature creation.
+    - id: refine
+      worker: skill:rhai-request-refine-worker
+      template:
+        path: templates/rhai-request-creator/request-template.md
+      protected_sections:
+        - Summary
+        - Problem Statement
+        - Affected Customers
+        - Business Justification
+        - Acceptance Criteria
+      outputs:
+        - name: strategy_markdown
+          artifact: task
+      gate:
+        source:
+          project: RHAIRFE
+          issue_type: Feature Request
+          labels:
+            any:
+              - rfe-creator-autofix-rubric-pass
+              - rfe-creator-rubric-pass
+              - tech-reviewed
+            none:
+              - rfe-creator-processing
+              - rfe-creator-needs-attention
+              - rhai-request-processing
+              - rhai-request-published
+          fields:
+            status:
+              not_in:
+                - Closed
+                - Resolved
+                - Draft
 
-reviewers:
-  - id: feasibility
-    worker: skill:rhai-request-feasibility-review
-    scoring: false
-  - id: assessment
-    worker: skill:rhai-request-assess
-    scoring: true
+    # Request review uses the RFE quality rubric and a separate feasibility
+    # assessment. Both reviewer files are public evidence in the request
+    # review directory and must exist before aggregation.
+    - id: review
+      worker: skill:rhai-request-review-worker
+      reviewer_execution: parallel
+      reviewers:
+        - id: assessment
+          worker: agent:rhai-request-scoring-reviewer
+          result:
+            schema: schemas/scorer-result-v1.json
+            artifact:
+              root: reviews
+              filename: '{issue_key}-assessment-review.md'
+        - id: feasibility
+          worker: agent:rhai-request-feasibility-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: '{issue_key}-{reviewer_id}-review.md'
+      aggregate:
+        inputs:
+          - assessment
+          - feasibility
+        schema: schemas/aggregated-review-v1.json
+        renderer: core:adlc-request-review-v1
+        artifact:
+          root: reviews
+          filename: '{issue_key}-review.md'
+      scoring:
+        inputs:
+          - assessment
+        rubric:
+          path: config/rubrics/rhai-request-review.yaml
+          digest: sha256:0b66500d28dab7a2c6d605f9254d2063e3fd563251d69b43af212ac3b2a7c7f0
+        verdict: core:adlc-request-v1
+      outputs:
+        - name: review_markdown
+          artifact: review
 
-# TODO: define artifact namespace, reviewers, concerns, and publication mapping.
+    # Publication is effect-oriented. Eval archives only; local and
+    # production publish through the request Jira mapping as configured.
+    - id: publish
+      kind: publication
+      adapters:
+        production:
+          - jira
+          - archive
+        local:
+          - jira
+          - archive
+        eval:
+          - archive
+      jira_mapping: config/jira-mapping.yaml
+
+# Versioned concern/plugin packages enabled for this lifecycle.
+concerns: []
+
+# Public request evidence and generated document layout.
+artifacts:
+  namespace: request
+  bundle_root: artifacts
+  result_file: rhai-request-result.json
+  roots:
+    tasks: artifacts/rhai-request-tasks
+    originals: artifacts/rhai-request-originals
+    reviews: artifacts/rhai-request-reviews
+    inputs: artifacts/rhai-request-inputs
+    extensions: artifacts/rhai-request-extension-results
+    reports: artifacts/rhai-request-reports
+    published: artifacts/rhai-request-published
+  evidence_files:
+    selection: rhai-request-selection.json
+    pipeline_data: rhai-request-pipeline-data.json
+  generated:
+    score:
+      root: reviews
+      filename: '{issue_key}-score.json'
+  bundle:
+    generated:
+      - score
+
+# Private mutable control-plane state used during execution and recovery.
+private_state:
+  root: .adlc/state
+  run_files:
+    request: request.json
+    state: state.json
+  work_files:
+    state: state.json
+    tasks: tasks/
+    effect_intents: effect-intents/
+    effect_receipts: effect-receipts/

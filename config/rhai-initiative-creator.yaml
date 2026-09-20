@@ -1,12 +1,17 @@
+# Profile schema and compatibility version.
 api_version: adlc.profile/v1
+# Shared workflow package identity.
 id: adlc-workflow
+# Core lifecycle implementation selected by this profile.
 lifecycle: adlc-initiative-v1
 
+# Architecture and repository context used by initiative refinement/review.
 context_sources:
   - id: rhai-architecture-context
     repo: https://github.com/opendatahub-io/architecture-context.git
     ref: main
     destination: .context/architecture-context
+    version_file: LATEST_VERSION
     include:
       - architecture/rhoai-*/**
       - overlays/*.md
@@ -14,17 +19,137 @@ context_sources:
       - '**/README.md'
     usage: context/rhai-architecture-context/usage.md
 
-template:
-  path: templates/rhai-initiative-creator/initiative-template.md
+# Ordered initiative lifecycle. Initiatives are refined and reviewed as
+# coherent team commitments; this profile intentionally has no split stage,
+# speedrun, or RFE-inheritance behavior.
+workflow:
+  stages:
+    # Engineers create initiatives in RHAISTRAT. Refinement preserves the
+    # commitment while adding architecture-grounded execution context.
+    - id: refine
+      worker: skill:rhai-initiative-refine-worker
+      template:
+        path: templates/rhai-initiative-creator/initiative-template.md
+      protected_sections:
+        - Objective
+        - Problem Statement
+        - Scope
+      outputs:
+        - name: strategy_markdown
+          artifact: task
+      gate:
+        source:
+          project: RHAISTRAT
+          issue_type: Initiative
+          labels:
+            none:
+              - rhai-initiative-processing
+              - rhai-initiative-published
+          fields:
+            status:
+              not_in:
+                - Closed
+                - Resolved
+                - Draft
 
-reviewers:
-  - id: feasibility
-    worker: skill:rhai-initiative-feasibility-review
-    scoring: false
-  - id: alignment
-    worker: skill:rhai-initiative-alignment-review
-    scoring: false
+    # Review combines quality scoring, technical feasibility, and optional
+    # strategic alignment to the source initiative's RHAISTRAT Outcome parent.
+    - id: review
+      worker: skill:rhai-initiative-review-worker
+      reviewer_execution: parallel
+      reviewers:
+        - id: assessment
+          worker: agent:rhai-initiative-scoring-reviewer
+          result:
+            schema: schemas/scorer-result-v1.json
+            artifact:
+              root: reviews
+              filename: '{issue_key}-assessment-review.md'
+        - id: feasibility
+          worker: agent:rhai-initiative-feasibility-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: '{issue_key}-{reviewer_id}-review.md'
+        - id: alignment
+          worker: agent:rhai-initiative-alignment-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: '{issue_key}-{reviewer_id}-review.md'
+      aggregate:
+        inputs:
+          - assessment
+          - feasibility
+          - alignment
+        schema: schemas/aggregated-review-v1.json
+        renderer: core:adlc-initiative-review-v1
+        artifact:
+          root: reviews
+          filename: '{issue_key}-review.md'
+      scoring:
+        inputs:
+          - assessment
+        rubric:
+          path: config/rubrics/rhai-initiative-review.yaml
+          digest: sha256:c80f61e8bdcb1c6efafdcf80acdd4476a0639b3bfe9935dcbef9ee3d8fc45c4f
+        verdict: core:adlc-initiative-v1
+      outputs:
+        - name: review_markdown
+          artifact: review
 
-# Initiative flow is intentionally create/review-oriented. It does not assume
-# RFE-style splitting, speedruns, or batch auto-fix behavior.
-# TODO: define artifact namespace, reviewers, concerns, and publication mapping.
+    # Initiative publication remains in RHAISTRAT and uses an initiative-specific
+    # Jira projection; eval mode archives without applying Jira effects.
+    - id: publish
+      kind: publication
+      adapters:
+        production:
+          - jira
+          - archive
+        local:
+          - jira
+          - archive
+        eval:
+          - archive
+      jira_mapping: config/jira-initiative-mapping.yaml
+
+# Versioned concern/plugin packages enabled for this lifecycle.
+concerns: []
+
+# Public initiative evidence and generated document layout.
+artifacts:
+  namespace: initiative
+  bundle_root: artifacts
+  result_file: rhai-initiative-result.json
+  roots:
+    tasks: artifacts/rhai-initiative-tasks
+    originals: artifacts/rhai-initiative-originals
+    reviews: artifacts/rhai-initiative-reviews
+    inputs: artifacts/rhai-initiative-inputs
+    extensions: artifacts/rhai-initiative-extension-results
+    reports: artifacts/rhai-initiative-reports
+    published: artifacts/rhai-initiative-published
+  evidence_files:
+    selection: rhai-initiative-selection.json
+    pipeline_data: rhai-initiative-pipeline-data.json
+  generated:
+    score:
+      root: reviews
+      filename: '{issue_key}-score.json'
+  bundle:
+    generated:
+      - score
+
+# Private mutable control-plane state used during execution and recovery.
+private_state:
+  root: .adlc/state
+  run_files:
+    request: request.json
+    state: state.json
+  work_files:
+    state: state.json
+    tasks: tasks/
+    effect_intents: effect-intents/
+    effect_receipts: effect-receipts/

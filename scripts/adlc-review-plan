@@ -11,7 +11,7 @@ SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_ROOT / "src"))
 
 from adlc_workflow.profiles import load_profile
-from adlc_workflow.reviews import check_review_outputs, review_plan
+from adlc_workflow.reviews import review_plan, wait_for_review_outputs
 
 
 def main() -> int:
@@ -19,13 +19,17 @@ def main() -> int:
     parser.add_argument("issue_key")
     parser.add_argument("--workspace", default=os.environ.get("ADLC_WORKSPACE", "."))
     parser.add_argument("--profile", default=os.environ.get("ADLC_PROFILE", "config/rhai-feature-creator.yaml"))
+    parser.add_argument("--install-root", default=str(SCRIPT_ROOT))
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--wait-seconds", type=float, default=30.0,
+                        help="maximum time to wait for reviewer files when checking")
     args = parser.parse_args()
     try:
-        plan = review_plan(SCRIPT_ROOT, Path(args.workspace), load_profile(SCRIPT_ROOT, args.profile),
+        install_root = Path(args.install_root).absolute()
+        plan = review_plan(install_root, Path(args.workspace), load_profile(install_root, args.profile),
                            args.issue_key, args.profile)
         if args.check:
-            missing = check_review_outputs(plan)
+            missing = wait_for_review_outputs(plan, timeout_seconds=args.wait_seconds)
             print(json.dumps({"status": "incomplete" if missing else "ready", "missing": missing}))
             return 2 if missing else 0
         print(json.dumps(plan, indent=2))

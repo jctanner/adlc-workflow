@@ -1,21 +1,139 @@
+# Profile schema and compatibility version.
 api_version: adlc.profile/v1
+# Shared workflow package identity.
 id: adlc-workflow
+# Core lifecycle implementation selected by this profile.
 lifecycle: adlc-epic-v1
 
-# Epic decomposition uses the strategy artifact as input and produces an
-# implementation-epic DAG plus review evidence.
+# Architecture context used by decomposition and adversarial review.
+context_sources:
+  - id: rhai-architecture-context
+    repo: https://github.com/opendatahub-io/architecture-context.git
+    ref: main
+    destination: .context/architecture-context
+    version_file: LATEST_VERSION
+    include:
+      - architecture/rhoai-*/**
+      - overlays/*.md
+    exclude:
+      - '**/README.md'
+    usage: context/rhai-architecture-context/usage.md
+
+# Ordered decomposition lifecycle. The decomposition worker owns the
+# per-epic collection; the profile owns the summary, review, and publication
+# contracts.
+workflow:
+  stages:
+    # Consume one RHAISTRAT strategy and produce a decomposition summary plus
+    # zero or more profile-scoped epic task files.
+    - id: decompose
+      worker: skill:rhai-epic-decompose-worker
+      outputs:
+        - name: decomposition_markdown
+          artifact: generated:decomposition
+      gate:
+        source:
+          project: RHAISTRAT
+          issue_type:
+            - Feature
+            - Initiative
+          labels:
+            none:
+              - rhai-epic-processing
+              - rhai-epic-published
+          fields:
+            status:
+              not_in:
+                - Closed
+                - Resolved
+                - Draft
+
+    # Review the complete DAG and all generated epic files before publication.
+    - id: review
+      worker: skill:rhai-epic-review-worker
+      reviewer_execution: parallel
+      reviewers:
+        - id: decomposition
+          worker: agent:rhai-epic-decomposition-reviewer
+          result:
+            schema: schemas/reviewer-result-v1.json
+            artifact:
+              root: reviews
+              filename: '{issue_key}-{reviewer_id}-review.md'
+      aggregate:
+        inputs:
+          - decomposition
+        schema: schemas/aggregated-review-v1.json
+        renderer: core:adlc-epic-review-v1
+        artifact:
+          root: reviews
+          filename: '{issue_key}-review.md'
+      scoring:
+        inputs:
+          - decomposition
+        rubric:
+          path: config/rubrics/rhai-epic-review.yaml
+          digest: sha256:7a6ca3e1d83ffac8497f3e85ed3911faefc7508f77a7b8afcfc40e7950c1ce11
+        verdict: core:adlc-epic-v1
+      outputs:
+        - name: review_markdown
+          artifact: review
+
+    # Publication archives the complete decomposition evidence. Jira effects
+    # are intentionally not enabled until a dedicated epic projection exists.
+    - id: publish
+      kind: publication
+      adapters:
+        production:
+          - archive
+        local:
+          - archive
+        eval:
+          - archive
+
+# Versioned concern/plugin packages enabled for this lifecycle.
+concerns: []
+
+# Public decomposition evidence. The generated summary is distinct from the
+# input strategy and from the individual epic task collection.
 artifacts:
   namespace: epic
   bundle_root: artifacts
+  result_file: rhai-epic-result.json
   roots:
-    strategy_inputs: artifacts/workflow-tasks
-    epic_tasks: artifacts/workflow-epic-tasks
-    epic_reviews: artifacts/workflow-epic-reviews
-    reports: artifacts/reports
+    tasks: artifacts/rhai-epic-strategy-inputs
+    originals: artifacts/rhai-epic-originals
+    reviews: artifacts/rhai-epic-reviews
+    inputs: artifacts/rhai-epic-inputs
+    extensions: artifacts/rhai-epic-extension-results
+    reports: artifacts/rhai-epic-reports
+    published: artifacts/rhai-epic-published
+    epics: artifacts/rhai-epic-tasks
+  generated:
+    decomposition:
+      root: reports
+      filename: '{issue_key}-decomposition.md'
+    score:
+      root: reviews
+      filename: '{issue_key}-score.json'
+  bundle:
+    generated:
+      - decomposition
+      - score
+    roots:
+      - epics
+  evidence_files:
+    selection: rhai-epic-selection.json
+    pipeline_data: rhai-epic-pipeline-data.json
+
+# Private mutable control-plane state used during execution and recovery.
 private_state:
   root: .adlc/state
   run_files:
     request: request.json
     state: state.json
   work_files:
-    decomposition: decompose-runs/
+    state: state.json
+    tasks: tasks/
+    effect_intents: effect-intents/
+    effect_receipts: effect-receipts/

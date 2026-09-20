@@ -12,7 +12,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task-file", type=Path, required=True)
     parser.add_argument("--markdown-file", type=Path, required=True)
-    parser.add_argument("--field", required=True, choices=("strategy_markdown", "review_markdown"))
+    parser.add_argument("--field", required=True, choices=("strategy_markdown", "review_markdown", "decomposition_markdown"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     task = json.loads(args.task_file.read_text(encoding="utf-8"))

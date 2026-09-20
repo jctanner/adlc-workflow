@@ -82,7 +82,8 @@ def stage_output_artifacts(stage_definition: dict[str, Any]) -> dict[str, str]:
 def evaluate_gate(stage_definition: dict[str, Any], context: dict[str, Any]) -> list[str]:
     """Return deterministic explanations for a stage gate failure.
 
-    A gate is expressed as ``source`` or ``parent`` issue predicates. Each
+    A gate is expressed as ``source`` or ``parent`` issue predicates, plus
+    ``linked.any``, ``linked.all``, and ``linked.none`` collections. Each issue
     predicate supports project, issue_type, labels (all/any/none), and fields
     (equals/in/not_in/exists). Missing context is a failure, never an implicit
     pass.
@@ -94,6 +95,9 @@ def evaluate_gate(stage_definition: dict[str, Any], context: dict[str, Any]) -> 
         raise WorkflowDefinitionError(f"stage {stage_definition['id']} gate must be a mapping")
     failures: list[str] = []
     for subject, requirements in gate.items():
+        if subject == "linked":
+            failures.extend(_evaluate_linked(requirements, context.get("linked")))
+            continue
         if subject not in {"source", "parent"}:
             raise WorkflowDefinitionError(f"unsupported gate subject: {subject}")
         if not isinstance(requirements, dict):
@@ -103,6 +107,32 @@ def evaluate_gate(stage_definition: dict[str, Any], context: dict[str, Any]) -> 
             failures.append(f"gate.{subject}: issue context is missing")
             continue
         failures.extend(_evaluate_issue(subject, issue, requirements))
+    return failures
+
+
+def _evaluate_linked(requirements: Any, linked: Any) -> list[str]:
+    if not isinstance(requirements, dict):
+        raise WorkflowDefinitionError("gate.linked must be a mapping")
+    if not isinstance(linked, list):
+        linked = []
+    failures: list[str] = []
+    for operator in ("any", "all", "none"):
+        rules = requirements.get(operator, [])
+        if not isinstance(rules, list):
+            raise WorkflowDefinitionError(f"gate.linked.{operator} must be a list")
+        matches = [
+            any(not _evaluate_issue("linked", issue, rule) for issue in linked if isinstance(issue, dict))
+            for rule in rules
+            if isinstance(rule, dict)
+        ]
+        if len(matches) != len(rules):
+            raise WorkflowDefinitionError(f"gate.linked.{operator} entries must be mappings")
+        if operator == "any" and rules and not any(matches):
+            failures.append("gate.linked.any: no linked issue matched")
+        if operator == "all" and any(not match for match in matches):
+            failures.append("gate.linked.all: a linked issue requirement did not match")
+        if operator == "none" and any(matches):
+            failures.append("gate.linked.none: a forbidden linked issue matched")
     return failures
 
 

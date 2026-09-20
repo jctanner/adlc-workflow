@@ -1,0 +1,14 @@
+# RHAISTRAT-native publication projection for engineer-authored initiatives.
+api_version: adlc.jira-mapping/v1
+comment_marker: "<!-- adlc-publication:{run_id}:{work_id} -->"
+strategy_target:
+  project: RHAISTRAT
+  issue_type: Initiative
+  link_type: Cloners
+labels:
+  published: adlc-published
+  auto_created: rhai-initiative-auto-created
+  outcome:
+    pass: rhai-initiative-rubric-pass
+    needs_attention: rhai-initiative-needs-attention
+fields: {}

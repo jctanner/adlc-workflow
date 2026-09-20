@@ -61,3 +61,26 @@ def test_unknown_gate_subject_is_rejected() -> None:
     bad = {"id": "refine", "gate": {"jira": {}}}
     with pytest.raises(WorkflowDefinitionError, match="unsupported gate subject"):
         evaluate_gate(bad, {})
+
+
+def test_linked_gate_supports_any_all_and_none() -> None:
+    linked_stage = {
+        "id": "refine",
+        "gate": {
+            "linked": {
+                "any": [{"project": "RHAISTRAT", "labels": {"all": ["ready"]}}],
+                "all": [{"fields": {"status": {"exists": True}}}],
+                "none": [{"project": "RHAISTRAT", "labels": {"any": ["processing"]}}],
+            }
+        },
+    }
+    linked = [
+        {"key": "RHAISTRAT-1", "fields": {"labels": ["ready"], "status": "Open"}},
+        {"key": "RHAIRFE-2", "fields": {"labels": [], "status": "Open"}},
+    ]
+    assert evaluate_gate(linked_stage, {"linked": linked}) == []
+    failures = evaluate_gate(
+        linked_stage,
+        {"linked": [{"key": "RHAISTRAT-1", "fields": {"labels": ["processing"], "status": "Open"}}]},
+    )
+    assert any("linked.none" in failure for failure in failures)

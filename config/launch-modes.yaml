@@ -1,6 +1,16 @@
-# TODO: bind production, local, and eval modes to approved adapters and effect
-# classes. Production admission must reject local/eval requests and bundles.
+api_version: adlc.launch-modes/v1
+# Reviewed adapter and effect allowlists for each execution mode.
 modes:
-  production: {}
-  local: {}
-  eval: {}
+  production:
+    trusted: true
+    adapters: [jira, archive]
+    effect_classes: [jira-write, archive-write]
+    required_effect_classes: [jira-write, archive-write]
+  local:
+    trusted: false
+    adapters: [jira, archive]
+    effect_classes: [jira-write, archive-write]
+  eval:
+    trusted: false
+    adapters: [archive]
+    effect_classes: [archive-write]

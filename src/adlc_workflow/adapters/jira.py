@@ -26,6 +26,11 @@ class JiraPublisher:
         self.link_type = target.get("link_type", "Cloners")
         self.auto_created_label = labels.get("auto_created", "strat-creator-auto-created")
         self.published_label = labels.get("published", "adlc-published")
+        outcome_labels = labels.get("outcome", {})
+        self.pass_label = outcome_labels.get("pass", "strat-creator-rubric-pass")
+        self.needs_attention_label = outcome_labels.get(
+            "needs_attention", "strat-creator-needs-attention"
+        )
         if not self.base_url or not self.token:
             raise JiraAdapterError("ADLC_JIRA_URL and ADLC_JIRA_TOKEN are required")
 
@@ -53,7 +58,15 @@ class JiraPublisher:
         except json.JSONDecodeError as exc:
             raise JiraAdapterError(f"Jira returned invalid JSON for {method} {path}") from exc
 
-    def publish(self, issue_key: str, run_id: str, work_id: str, strategy_path: str, review_path: str) -> dict[str, Any]:
+    def publish(
+        self,
+        issue_key: str,
+        run_id: str,
+        work_id: str,
+        strategy_path: str,
+        review_path: str,
+        verdict: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         issue_path = f"/rest/api/2/issue/{quote(issue_key, safe='')}"
         marker = f"<!-- adlc-publication:{run_id}:{work_id} -->"
         issue = self._request("GET", issue_path)
@@ -113,7 +126,9 @@ class JiraPublisher:
         if existing_description != strategy_text:
             self._request("PUT", strat_path, {"fields": {"description": strategy_text}})
 
-        outcome_label = "strat-creator-rubric-pass" if "PASS" in review_text.upper() else "strat-creator-needs-attention"
+        outcome_label = (verdict or {}).get("label")
+        if not isinstance(outcome_label, str) or not outcome_label:
+            outcome_label = self.pass_label if "PASS" in review_text.upper() else self.needs_attention_label
         self._request(
             "PUT",
             strat_path,

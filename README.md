@@ -86,7 +86,7 @@ The Claude service stays running idle so it can be inspected interactively.
 In another terminal, invoke the workflow with:
 
 ```sh
-podman-compose exec claude claude --dangerously-skip-permissions \
+podman-compose exec -T claude claude --dangerously-skip-permissions \
   --model "$ADLC_CLAUDE_MODEL" \
   -p "/adlc-workflow:adlc-workflow $ADLC_ISSUE_KEY"
 ```
@@ -102,7 +102,7 @@ It seeds an example RFE, invokes the workflow for the newly returned issue key,
 and tees combined Claude output to `/workspace/adlc-workflow-run.log`:
 
 ```sh
-podman-compose exec claude \
+podman-compose exec -T claude \
   /home/evaluator/.claude/plugins/adlc-workflow/scripts/run-example-workflow.sh
 podman-compose exec claude tail -f /workspace/adlc-workflow-run.log
 ```

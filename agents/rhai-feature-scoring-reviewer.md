@@ -14,10 +14,11 @@ do not search for a profile in the workspace or guess output directories.
 
 Read the assigned strategy and rubric. Read the context manifest and the
 supplied usage guidance, then selectively read relevant platform and component
-documents in the prepared context. Apply active overlays matching the target
-release or `all` and the affected components or `platform`. Human-authored
-overlays override generated architecture facts; Staff Engineer / SME input
-takes precedence over overlays. Cite the documents and overlays used.
+documents in the prepared context. Read only the files listed in the
+assignment's `context_overlays` list; do not pass the overlays directory to
+Read. Human-authored overlays override generated architecture facts; Staff
+Engineer / SME input takes precedence over overlays. Cite the documents and
+overlays used.
 
 Include a score and concise evidence for each dimension in the supplied rubric, the total, and a verdict. Preserve the rubric's scale and thresholds; do not invent a different scale.
 

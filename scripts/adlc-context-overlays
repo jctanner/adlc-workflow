@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Print the exact overlay files selected by the prepared context adapter."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workspace", default="/workspace")
+    args = parser.parse_args()
+    workspace = Path(args.workspace).resolve()
+    manifest_path = workspace / ".context/context-manifest.json"
+    if not manifest_path.is_file():
+        return 0
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    paths: list[Path] = []
+    for source in manifest.get("sources", []):
+        if not isinstance(source, dict) or not isinstance(source.get("destination"), str):
+            continue
+        destination = (workspace / source["destination"]).resolve()
+        for overlay in source.get("applied_overlays", []):
+            if not isinstance(overlay, dict) or not isinstance(overlay.get("path"), str):
+                continue
+            path = (destination / overlay["path"]).resolve()
+            try:
+                path.relative_to(workspace)
+            except ValueError:
+                raise SystemExit(f"context overlay escapes workspace: {path}")
+            if path.is_file():
+                paths.append(path)
+    for path in sorted(set(paths)):
+        print(path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -11,6 +11,7 @@ context_sources:
     repo: https://github.com/opendatahub-io/architecture-context.git
     ref: main
     destination: .context/architecture-context
+    version_file: LATEST_VERSION
     include:
       - architecture/rhoai-*/**
       - overlays/*.md
@@ -120,6 +121,9 @@ workflow:
     - id: publish
       kind: publication
       adapters:
+        production:
+          - jira
+          - archive
         local:
           - jira
           - archive
@@ -144,8 +148,14 @@ artifacts:
     published: artifacts/rhai-feature-published
   evidence_files:
     selection: rhai-feature-selection.json
-    result: rhai-feature-result.json
     pipeline_data: rhai-feature-pipeline-data.json
+  generated:
+    score:
+      root: reviews
+      filename: '{issue_key}-score.json'
+  bundle:
+    generated:
+      - score
 # Private mutable control-plane state used during execution and recovery.
 private_state:
   root: .adlc/state

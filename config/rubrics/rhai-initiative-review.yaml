@@ -1,0 +1,66 @@
+# Normalized repository-local copy of the approved Initiative quality rubric.
+api_version: adlc.rubric/v1
+id: rhai-initiative-review
+version: 1
+
+source:
+  repository: checkouts/opendatahub-io/assess-rfe
+  path: skills/assess-initiative/scripts/agent_prompt.md
+  section: Scoring Rubric
+
+subject:
+  kind: rhai-initiative
+  input: strategy_markdown
+
+scale:
+  minimum: 0
+  maximum: 2
+  meaning:
+    0: absent, blocked, incorrect, or untestable
+    1: partial, underspecified, or has material open questions
+    2: complete, credible, and supported by evidence
+
+dimensions:
+  - id: what
+    title: WHAT
+    question: Is the initiative's deliverable and outcome clear?
+  - id: why
+    title: WHY
+    question: Is there concrete evidence explaining why the initiative matters?
+  - id: scope
+    title: Scope
+    question: Are the included and excluded boundaries clear?
+  - id: open_to_how
+    title: Open to HOW
+    question: Does the initiative leave implementation choices to engineering?
+  - id: right_sized
+    title: Right-sized
+    question: Is this one coherent effort rather than unrelated initiatives?
+
+scoring:
+  total:
+    expression: sum(dimensions[*].score)
+    maximum: 10
+  zero_count: count(dimensions[*].score == 0)
+
+verdict:
+  deterministic: true
+  rules:
+    - id: approve
+      when: total >= 7 and zero_count == 0
+      needs_attention: false
+    - id: revise
+      when: total < 7 or zero_count > 0
+      needs_attention: true
+  labels:
+    approve: rhai-initiative-rubric-pass
+    revise: rhai-initiative-needs-attention
+
+output:
+  required:
+    - title
+    - dimension_scores
+    - total
+    - verdict
+    - evidence
+    - recommendations

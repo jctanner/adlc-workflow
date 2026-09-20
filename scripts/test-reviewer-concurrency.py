@@ -13,7 +13,7 @@ INSTALL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(INSTALL / "src"))
 
 from adlc_workflow.profiles import load_profile
-from adlc_workflow.reviews import check_review_outputs, review_plan
+from adlc_workflow.reviews import review_plan, wait_for_review_outputs
 from adlc_workflow.review_trace import verify_parallel_reviewers
 
 
@@ -78,7 +78,7 @@ def main() -> int:
     if result.returncode or not any(e.get("type") == "result" and not e.get("is_error") for e in events):
         raise RuntimeError(f"Claude smoke failed; inspect {log}")
     report = verify_parallel_reviewers(events, {a["task"]["subagent_type"] for a in plan["assignments"]})
-    missing = check_review_outputs(plan)
+    missing = wait_for_review_outputs(plan, timeout_seconds=30.0)
     if missing:
         raise RuntimeError(f"missing reviewer files: {missing}")
     report.update(elapsed_seconds=round(time.monotonic() - started, 1), log=str(log))

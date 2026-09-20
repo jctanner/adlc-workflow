@@ -15,7 +15,9 @@ and `--profile <install-relative-profile>`.
 1. Run the prewritten helper, substituting the actual issue key and workspace:
 
    ```bash
-   "$CLAUDE_PLUGIN_ROOT/scripts/adlc-review-plan" <issue-key> --workspace <workspace>
+   "$CLAUDE_PLUGIN_ROOT/scripts/adlc-review-plan" <issue-key> \
+     --workspace <workspace> --install-root "$CLAUDE_PLUGIN_ROOT" \
+     --profile <profile>
    ```
 
    Pass `--profile` when supplied. Its assignments resolve the configured
@@ -32,14 +34,34 @@ and `--profile <install-relative-profile>`.
 3. Collect the completion of every launched agent using task notifications or
    the available task-result tool. A spawn refusal or failed reviewer is a
    review failure; report it rather than silently substituting your own review.
-   After all agents succeed, run the same helper with `--check`. Nonzero exit
-   means an output is missing or empty: do not aggregate yet. File existence
-   alone is insufficient while a reviewer is still running.
-4. Read the five assigned outputs and the strategy. Write the aggregate to
-   `aggregate_path` from the plan, citing evidence and preserving the rubric's
-   scores and scale. Do not copy another ticket's review or replace individual
-   findings with a fresh assessment. Read additional prepared context only
-   where needed to reconcile findings.
+   After all agents succeed, run the same helper with `--check --wait-seconds
+   30`. This is the output barrier: it waits briefly for every assigned file
+   to become non-empty before returning. Nonzero exit means an output is still
+   missing or empty: do not aggregate. File existence alone is insufficient
+   while a reviewer is still finishing its write.
+4. Run the checked-in aggregator. It reads `review.aggregate.inputs` in the
+   declared order, validates `review.aggregate.schema`, uses the configured
+   `review.aggregate.renderer`, and writes the declared aggregate artifact:
+
+   ```bash
+   "$CLAUDE_PLUGIN_ROOT/scripts/adlc-aggregate-review" <issue-key> \
+     --workspace <workspace> \
+     --install-root "$CLAUDE_PLUGIN_ROOT" \
+     --profile <profile>
+   ```
+
+   Do not name a fixed reviewer list, read another ticket's review, or replace
+   configured findings with a fresh assessment.
+
+   Then run the deterministic scorer, which reads `review.scoring.inputs`,
+   `review.scoring.rubric`, and `review.scoring.verdict` from the same profile:
+
+   ```bash
+   "$CLAUDE_PLUGIN_ROOT/scripts/adlc-score-review" <issue-key> \
+     --workspace <workspace> \
+     --install-root "$CLAUDE_PLUGIN_ROOT" \
+     --profile <profile>
+   ```
 5. Return the aggregate path and a short verdict to the workflow. The workflow
    builds the envelope with `adlc-result` from this exact file and submits it.
    Review dispatch never advances, submits, or modifies private workflow state.

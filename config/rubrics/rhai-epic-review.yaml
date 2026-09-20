@@ -1,0 +1,69 @@
+# Normalized repository-local rubric for reviewing an epic decomposition.
+api_version: adlc.rubric/v1
+id: rhai-epic-review
+version: 1
+
+source:
+  repository: checkouts/opendatahub-io/epic-creator
+  path: skills/epic-decompose/prompts/review-agent.md
+  section: Review Against Quality Criteria
+
+subject:
+  kind: rhai-epic-decomposition
+  input: decomposition_markdown
+
+scale:
+  minimum: 0
+  maximum: 2
+  meaning:
+    0: structurally broken or materially incomplete
+    1: usable but has material gaps or rule violations
+    2: complete, coherent, and ready for publication
+
+dimensions:
+  - id: hlr_coverage
+    title: HLR Coverage
+    question: Are strategy requirements mapped to generated epics?
+  - id: dag_coherence
+    title: DAG Coherence
+    question: Are dependencies valid, justified, and acyclic?
+  - id: epic_boundaries
+    title: Epic Boundaries
+    question: Are component and team boundaries respected?
+  - id: type_correctness
+    title: Type Correctness
+    question: Are implementation and investigation epics classified correctly?
+  - id: acceptance_criteria
+    title: Acceptance Criteria Quality
+    question: Are epic acceptance criteria concrete and testable?
+  - id: completeness
+    title: Completeness
+    question: Does the decomposition preserve the strategy's scope and risks?
+
+scoring:
+  total:
+    expression: sum(dimensions[*].score)
+    maximum: 12
+  zero_count: count(dimensions[*].score == 0)
+
+verdict:
+  deterministic: true
+  rules:
+    - id: approve
+      when: total >= 9 and zero_count == 0
+      needs_attention: false
+    - id: revise
+      when: total < 9 or zero_count > 0
+      needs_attention: true
+  labels:
+    approve: rhai-epic-review-pass
+    revise: rhai-epic-needs-attention
+
+output:
+  required:
+    - title
+    - dimension_scores
+    - total
+    - verdict
+    - evidence
+    - recommendations

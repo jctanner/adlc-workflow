@@ -1,0 +1,66 @@
+# Normalized repository-local copy of the approved RFE quality rubric.
+api_version: adlc.rubric/v1
+id: rhai-request-review
+version: 1
+
+source:
+  repository: checkouts/opendatahub-io/assess-rfe
+  path: skills/assess-rfe/scripts/agent_prompt.md
+  section: Scoring Rubric
+
+subject:
+  kind: rhai-request
+  input: strategy_markdown
+
+scale:
+  minimum: 0
+  maximum: 2
+  meaning:
+    0: absent, blocked, incorrect, or untestable
+    1: partial, underspecified, or has material open questions
+    2: complete, credible, and supported by evidence
+
+dimensions:
+  - id: what
+    title: WHAT
+    question: Is the customer need or desired outcome clear?
+  - id: why
+    title: WHY
+    question: Is there concrete evidence explaining why the need matters?
+  - id: open_to_how
+    title: Open to HOW
+    question: Does the request leave engineering free to choose the implementation?
+  - id: not_a_task
+    title: Not a task
+    question: Is this expressed as a business need rather than an implementation activity?
+  - id: right_sized
+    title: Right-sized
+    question: Is this one focused, independently valuable request?
+
+scoring:
+  total:
+    expression: sum(dimensions[*].score)
+    maximum: 10
+  zero_count: count(dimensions[*].score == 0)
+
+verdict:
+  deterministic: true
+  rules:
+    - id: approve
+      when: total >= 7 and zero_count == 0
+      needs_attention: false
+    - id: revise
+      when: total < 7 or zero_count > 0
+      needs_attention: true
+  labels:
+    approve: rfe-creator-rubric-pass
+    revise: rfe-creator-needs-attention
+
+output:
+  required:
+    - title
+    - dimension_scores
+    - total
+    - verdict
+    - evidence
+    - recommendations

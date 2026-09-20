@@ -53,6 +53,18 @@ def test_request_rejects_conflicting_selector() -> None:
         )
 
 
+def test_core_assigns_unique_ids_to_repeated_invocations(project: Path) -> None:
+    core = WorkflowCore(project)
+
+    first = core.start(request("RHAIRFE-1"))
+    second = core.start(request("RHAIRFE-1"))
+
+    assert first["run_id"] != second["run_id"]
+    assert first["items"][0]["work_id"] != second["items"][0]["work_id"]
+    assert (project / ".adlc" / "state" / "runs" / first["run_id"] / "state.json").is_file()
+    assert (project / ".adlc" / "state" / "runs" / second["run_id"] / "state.json").is_file()
+
+
 def test_core_emits_refine_and_review_tasks(project: Path) -> None:
     core = WorkflowCore(project)
     started = core.start(request("RHAIRFE-1"))
@@ -149,7 +161,6 @@ def test_core_uses_profile_selected_artifact_roots(project: Path) -> None:
     }
     profile["artifacts"]["evidence_files"] = {
         "selection": "selection.json",
-        "result": "result.json",
         "pipeline_data": "pipeline-data.json",
     }
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False))

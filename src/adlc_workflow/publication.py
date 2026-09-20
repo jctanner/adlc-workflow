@@ -12,6 +12,7 @@ import yaml
 from .adapters.eval import EvalPublisher
 from .adapters.git import LocalArchivePublisher
 from .adapters.jira import JiraPublisher
+from .admission import AdmissionError, enforce_effect_permissions
 from .artifacts import ArtifactLayout
 from .workflow import WorkflowDefinitionError, publication_stage
 
@@ -32,6 +33,10 @@ def publish_run(install_root: Path, workspace_root: Path, profile: dict[str, Any
     configured = publish_stage.get("adapters", {}).get(mode, [])
     if not configured:
         raise PublicationError(f"publication adapters are not configured for mode {mode}")
+    try:
+        enforce_effect_permissions(state.get("admission", {}), configured)
+    except AdmissionError as exc:
+        raise PublicationError(str(exc)) from exc
     receipts: list[dict[str, Any]] = []
     try:
         mapping = {}
@@ -41,13 +46,30 @@ def publish_run(install_root: Path, workspace_root: Path, profile: dict[str, Any
             mapping = yaml.safe_load(mapping_path.read_text(encoding="utf-8")) or {}
         if "jira" in configured:
             for item in items:
+                score_path = artifacts.generated("score", item["key"])
+                if not score_path.is_file():
+                    raise PublicationError(f"deterministic score is required before Jira publication: {score_path}")
+                try:
+                    verdict = json.loads(score_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise PublicationError(f"deterministic score is invalid: {score_path}") from exc
                 strategy = artifacts.task(item["key"])
                 review = artifacts.review(item["key"])
-                receipts.append(JiraPublisher(mapping=mapping).publish(item["key"], run_id, item["work_id"], str(strategy), str(review)))
+                receipts.append(JiraPublisher(mapping=mapping).publish(
+                    item["key"], run_id, item["work_id"], str(strategy), str(review), verdict
+                ))
         if mode == "eval" and "archive" in configured:
             receipts.append(EvalPublisher().publish(workspace_root, run_id, items, profile))
         elif "archive" in configured:
-            receipts.append(LocalArchivePublisher().publish(workspace_root, run_id, items, profile))
+            admission = state.get("admission", {})
+            receipts.append(LocalArchivePublisher().publish(
+                workspace_root,
+                run_id,
+                items,
+                profile,
+                mode=mode,
+                trusted=admission.get("trusted", False),
+            ))
         unknown = set(configured) - {"jira", "archive"}
         if unknown:
             raise PublicationError(f"unknown publication adapters: {sorted(unknown)}")

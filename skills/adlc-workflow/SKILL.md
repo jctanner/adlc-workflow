@@ -25,15 +25,21 @@ Execution contract:
    exactly as supplied; never substitute `localhost`, `127.0.0.1`, or another
    default. Use the issue summary and description as refinement context.
 
+   Use one unique staging directory for the whole invocation. Do not use a
+   shared `batch-input` directory, because two workflow invocations must not
+   overwrite one another's captured Jira input:
+
    ```bash
-   mkdir -p /workspace/.adlc/batch-input/source
+   mkdir -p /workspace/.adlc
+   request_dir=$(mktemp -d /workspace/.adlc/request.XXXXXX)
+   mkdir -p "$request_dir/source"
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-jira-issue" RHAIRFE-1 \
-     > /workspace/.adlc/batch-input/source/RHAIRFE-1.json
+     > "$request_dir/source/RHAIRFE-1.json"
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-jira-issue" RHAIRFE-2 \
-     > /workspace/.adlc/batch-input/source/RHAIRFE-2.json
+     > "$request_dir/source/RHAIRFE-2.json"
    ```
-3. Create `/workspace/.adlc/batch-input/request.json` by running the
-   prewritten command once, passing every issue key and one matching
+3. Create `$request_dir/request.json` by running the prewritten command once,
+   passing every issue key and one matching
    `--issue-file` argument per key. Keep the argument order identical. Do not
    construct the JSON with an inline Python or heredoc command:
 
@@ -50,9 +56,9 @@ Execution contract:
 
    ```bash
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-request" \
-     RHAIRFE-1 RHAIRFE-2 --output /workspace/.adlc/batch-input/request.json \
-     --issue-file /workspace/.adlc/batch-input/source/RHAIRFE-1.json \
-     --issue-file /workspace/.adlc/batch-input/source/RHAIRFE-2.json
+     RHAIRFE-1 RHAIRFE-2 --output "$request_dir/request.json" \
+     --issue-file "$request_dir/source/RHAIRFE-1.json" \
+     --issue-file "$request_dir/source/RHAIRFE-2.json"
    ```
 
 4. Invoke the installed wrapper at
@@ -62,7 +68,7 @@ Execution contract:
 
    ```bash
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-workflow" start \
-     --request /workspace/.adlc/batch-input/request.json
+     --request "$request_dir/request.json"
    ```
 
    Use install root `$CLAUDE_PLUGIN_ROOT`, workspace `/workspace`, and profile
@@ -71,15 +77,28 @@ Execution contract:
    Artifacts and private state must be written under `/workspace`.
 5. Repeatedly advance the run until it is terminal. Each task envelope names
    its `issue_key` and `work_id`; use a run- and work-scoped scratch directory
-   such as `/workspace/.adlc/runs/<run-id>/<work-id>/` for task and result
-   envelopes. Never use `current-task.json`, `task.json`, `refine-result.json`,
-   or other flat aliases. For a refine task, invoke
-   `adlc-workflow:rhai-feature-refine-worker` through the Skill tool with the
-   task's `issue_key`. The worker writes the strategy artifact and returns only
-   a compact JSON record containing its absolute `artifact_path`; do not ask it
-   to return or reproduce the markdown. Use that path directly with the
-   prewritten result-envelope command below. Do not generate the JSON envelope
-   with inline Python, a heredoc, or a pipe:
+   such as `/workspace/.adlc/state/runs/<run-id>/items/<work-id>/` for task and
+   result envelopes. Never use `current-task.json`, `task.json`,
+   `refine-result.json`, or other flat aliases. For a refine task, invoke the
+   plugin-qualified Skill named by the task's `worker` value (for example,
+   `skill:rhai-feature-refine-worker` becomes
+   `adlc-workflow:rhai-feature-refine-worker`). The worker writes the strategy
+   artifact and returns only a compact JSON record containing its absolute
+   `artifact_path`; do not ask it to return or reproduce the markdown. Use that
+   path directly with the prewritten result-envelope command below. Do not
+   generate the JSON envelope with inline Python, a heredoc, or a pipe:
+
+   Obtain every task envelope with the prewritten task helper. Do not invoke
+   `adlc-workflow advance` directly and do not invent a task filename:
+
+   ```bash
+   task_file=$("$CLAUDE_PLUGIN_ROOT/scripts/adlc-task" \
+     <run-id> \
+     "/workspace/.adlc/state/runs/<run-id>/items/<work-id>/tasks/<task-id>.json")
+   ```
+
+   The helper supplies the required `--run` argument and creates the parent
+   directories. Use the returned path as `--task-file`.
 
    ```bash
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-result" \
@@ -95,17 +114,24 @@ Execution contract:
    public artifact when the result is submitted. Do not copy or persist a
    second artifact manually. Submit the result through the CLI and confirm
    that submission was accepted.
-6. For each review task, invoke `adlc-workflow:rhai-feature-review-worker`
-   through the Skill tool with the task's `issue_key`. This dispatch skill runs
-   in this parent session and launches the profile's native reviewer agents.
-   Do not wrap it in a forked subagent. After it returns the aggregate path,
-   use that exact file with the same `adlc-result` command and
-   `--field review_markdown` to construct the result. Submit it with
-   `adlc-submit` and confirm acceptance.
+6. For a decomposition task, invoke the plugin-qualified Skill named by the
+   task's `worker` value in the same way. That worker writes the decomposition
+   summary and any profile-scoped child artifacts, returning only its absolute
+   `artifact_path`. Build the result with `adlc-result --field
+   decomposition_markdown`, then submit it with `adlc-submit`. Do not return or
+   reproduce the decomposition markdown in the parent context.
+7. For each review task, invoke the plugin-qualified Skill named by the task's
+   `worker` value (for example, `skill:rhai-feature-review-worker` becomes
+   `adlc-workflow:rhai-feature-review-worker`) with the task's `issue_key`.
+   This dispatch skill runs in this parent session and launches the profile's
+   native reviewer agents. Do not wrap it in a forked subagent. After it
+   returns the aggregate path, use that exact file with the same `adlc-result`
+   command and `--field review_markdown` to construct the result. Submit it
+   with `adlc-submit` and confirm acceptance.
    The core persists the accepted review markdown to the profile-selected
    public artifact when the result is submitted. Do not copy or persist a
    second artifact manually.
-7. After each submitted result, advance again and inspect the envelope. If its
+8. After each submitted result, advance again and inspect the envelope. If its
    `kind` is `complete` or
    `blocked`, stop immediately: it is a terminal response, not a task, and
    must never be passed to `adlc-submit`. Only invoke `adlc-submit` for a JSON

@@ -19,28 +19,38 @@ Use only the installed plugin and runtime workspace:
    `$CLAUDE_PLUGIN_ROOT/scripts/adlc-jira-issue "$issue_key"`. Execute it
    directly; do not prefix it with `bash`, and do not replace it with curl or
    inline Python.
-2. Read the `refine` stage from the active profile's `workflow.stages` and
-   resolve its declared `template.path` with Bash using `realpath` under
-   `$CLAUDE_PLUGIN_ROOT`, then pass the resulting absolute path to the Read
-   tool. The Read tool does not expand shell variables. Do not resolve the
-   template relative to this skill directory or construct a `../../../templates`
-   path.
+2. Resolve the active profile's declared refine template with the prewritten
+   helper, then pass its returned absolute path to the Read tool:
+
+   ```bash
+   template_path=$("$CLAUDE_PLUGIN_ROOT/scripts/adlc-template-path" \
+     --install-root "$CLAUDE_PLUGIN_ROOT" \
+     --profile config/rhai-feature-creator.yaml)
+   ```
+
+   The Read tool does not expand shell variables. Do not resolve the template
+   relative to this skill directory or construct a `../../../templates` path.
 3. Read the prepared architecture context selectively. Read the small
    `/workspace/.context/context-manifest.json` and
    `/workspace/.context/architecture-context/LATEST_VERSION`, then the
    relevant `architecture/rhoai-*/PLATFORM.md` and component documents. Do not
    read the entire context tree or a generated file listing, and do not clone
    or fetch context yourself; the core adapter prepares it before this task.
-   Also inspect `/workspace/.context/architecture-context/overlays/` when it
-   exists. Read active `*.md` overlays (excluding `README.md`) whose
-   `release` includes the target release or `all`, and whose `affects` matches
-   a strategy component or `platform`. Overlays are human-authored corrections
-   and take precedence over generated architecture docs; Staff Engineer / SME
-   input still takes precedence over overlays. Record which overlays were
-   applied in the strategy's supporting context.
+   Resolve the exact overlay files selected by the adapter with:
+
+   ```bash
+   "$CLAUDE_PLUGIN_ROOT/scripts/adlc-context-overlays" --workspace /workspace
+   ```
+
+   Read only the returned files; never guess an overlay directory or pass a
+   directory to Read. Overlays are human-authored corrections and take
+   precedence over generated architecture docs; Staff Engineer / SME input
+   still takes precedence over overlays. Record which overlays were applied in
+   the strategy's supporting context.
 4. Resolve the strategy artifact path by running
    `"$CLAUDE_PLUGIN_ROOT/scripts/adlc-artifact-path" task <issue-key>
-   --workspace /workspace`, then write the complete strategy markdown to the
+   --workspace /workspace --install-root "$CLAUDE_PLUGIN_ROOT" \
+   --profile config/rhai-feature-creator.yaml`, then write the complete strategy markdown to the
    returned absolute path with the Write tool. Do not hardcode an artifact
    directory; the active profile owns its layout.
    Preserve the issue summary and description verbatim in the Business Need

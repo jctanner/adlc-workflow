@@ -26,11 +26,17 @@ class StateStore:
     def state_path(self, run_id: str) -> Path:
         return self.run_dir(run_id) / "state.json"
 
-    def task_path(self, run_id: str, task_id: str) -> Path:
-        return self.run_dir(run_id) / "tasks" / f"{task_id}.json"
+    def request_path(self, run_id: str) -> Path:
+        return self.run_dir(run_id) / "request.json"
 
-    def result_path(self, run_id: str, task_id: str) -> Path:
-        return self.run_dir(run_id) / "results" / f"{task_id}.json"
+    def work_dir(self, run_id: str, work_id: str) -> Path:
+        return self.run_dir(run_id) / "items" / work_id
+
+    def task_path(self, run_id: str, work_id: str, task_id: str) -> Path:
+        return self.work_dir(run_id, work_id) / "tasks" / f"{task_id}.json"
+
+    def result_path(self, run_id: str, work_id: str, task_id: str) -> Path:
+        return self.work_dir(run_id, work_id) / "results" / f"{task_id}.json"
 
     @staticmethod
     def _write(path: Path, content: str) -> None:

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 plugin_root="${CLAUDE_PLUGIN_ROOT:-/home/evaluator/.claude/plugins/adlc-workflow}"
 log_file="${ADLC_RUN_LOG:-/workspace/adlc-workflow-run.log}"
 seed_script="$plugin_root/scripts/seed-example-rfe.sh"
-example_count="${ADLC_EXAMPLE_RFE_COUNT:-2}"
+example_count="${ADLC_EXAMPLE_RFE_COUNT:-1}"
 
 # This is a disposable integration-test workspace. Clear visible and hidden
 # entries explicitly; `/workspace/*` alone does not match dot-directories.

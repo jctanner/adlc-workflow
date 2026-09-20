@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .publication import PublicationError, publish_run
+from .admission import AdmissionError, admit_request, enforce_profile_permissions, load_policy
+from .plugins import PluginError, activate_plugins
 from .context import ContextError, prepare_context
 from .artifacts import ArtifactLayout, ArtifactLayoutError
-from .profiles import load_profile
+from .profiles import load_profile, refine_template_path
 from .selection import SelectionError, freeze_selection, normalize_request
 from .state import StateError, StateStore
 from .tasks import TaskError, validate_result
@@ -56,10 +59,26 @@ class WorkflowCore:
     def start(self, request: dict[str, Any], profile_path: str = "config/rhai-feature-creator.yaml") -> dict[str, Any]:
         try:
             profile = load_profile(self.install_root, profile_path)
+            workflow_definition = profile.get("workflow")
+            workflow_stages = workflow_definition.get("stages", []) if isinstance(workflow_definition, dict) else []
+            if any(isinstance(candidate, dict) and candidate.get("id") == "refine"
+                   for candidate in workflow_stages):
+                refine_template_path(self.install_root, profile)
+            admission = admit_request(
+                request,
+                load_policy(self.install_root / "config/launch-modes.yaml"),
+            )
+            enforce_profile_permissions(profile, admission)
             artifacts = ArtifactLayout(self.workspace_root, profile)
             normalized = normalize_request(request, default_profile=profile_path)
-            context_manifest = prepare_context(self.install_root, self.workspace_root, profile, normalized.mode)
-        except (SelectionError, ValueError, ArtifactLayoutError, ContextError, WorkflowDefinitionError) as exc:
+            request_kwargs = request.get("kwargs", {})
+            context_components = request_kwargs.get("context_components", []) if isinstance(request_kwargs, dict) else []
+            if not isinstance(context_components, list) or not all(isinstance(value, str) for value in context_components):
+                raise WorkflowError("kwargs.context_components must be a list of strings")
+            context_manifest = prepare_context(
+                self.install_root, self.workspace_root, profile, normalized.mode, context_components
+            )
+        except (AdmissionError, SelectionError, ValueError, ArtifactLayoutError, ContextError, WorkflowDefinitionError) as exc:
             raise WorkflowError(str(exc)) from exc
         kwargs = request.get("kwargs", {})
         source_issues = kwargs.get("source_issues", {})
@@ -70,7 +89,36 @@ class WorkflowCore:
         gate_context = {
             "sources": source_issues,
             "parent": kwargs.get("parent_issue"),
+            "parents": kwargs.get("parent_issues", {}),
+            "linked": {},
         }
+        if not isinstance(gate_context["parents"], dict):
+            raise WorkflowError("kwargs.parent_issues must be an object")
+        for key, issue in source_issues.items():
+            if not isinstance(issue, dict):
+                continue
+            fields = issue.get("fields", {})
+            if not isinstance(fields, dict):
+                fields = {}
+            parent = gate_context["parents"].get(key, kwargs.get("parent_issue"))
+            if parent is None:
+                parent = fields.get("parent", issue.get("parent"))
+            if parent is not None:
+                gate_context["parents"][key] = parent
+            links = fields.get("issuelinks", issue.get("issuelinks", []))
+            linked = []
+            if isinstance(links, list):
+                for link in links:
+                    if not isinstance(link, dict):
+                        continue
+                    linked_issue = link.get("inwardIssue") or link.get("outwardIssue")
+                    if isinstance(linked_issue, dict):
+                        linked.append(linked_issue)
+            gate_context["linked"][key] = linked
+        try:
+            plugin_receipts = activate_plugins(self.install_root, profile, gate_context)
+        except PluginError as exc:
+            raise WorkflowError(str(exc)) from exc
         selection = freeze_selection(normalized)
         first_stage = next_stage(profile, None)
         if first_stage is None:
@@ -84,21 +132,19 @@ class WorkflowCore:
                 )
             if failures:
                 raise WorkflowError(f"stage {first_stage['id']} gate failed: {'; '.join(failures)}")
-        basis = {
-            "args": list(normalized.args),
-            "operation": normalized.operation,
-            "mode": normalized.mode,
-            "identity": normalized.identity,
-            "profile": profile_path,
-            "selection": selection,
-        }
-        run_id = f"run-{_digest(basis)[:16]}"
+        # A request describes the work, but it is not the identity of an
+        # execution. Include a fresh invocation token so repeated runs with
+        # identical input receive distinct state directories and publication
+        # markers while task IDs remain deterministic within each run.
+        run_id = f"run-{uuid.uuid4().hex[:16]}"
         if self.state.state_path(run_id).exists():
             raise WorkflowError(f"run already exists: {run_id}")
         selection["run_id"] = run_id
         selection["profile"] = profile_path
         public_selection = artifacts.evidence_path("selection")
         self.state.write_json(public_selection, selection)
+        request_path = self.state.request_path(run_id)
+        self.state.write_json(request_path, request)
         items = [
             {"work_id": f"work-{_digest({'run': run_id, 'key': key})[:16]}", "key": key, "status": "pending", "stage": None}
             for key in selection["ordered_keys"]
@@ -110,7 +156,9 @@ class WorkflowCore:
             "lifecycle": profile["lifecycle"],
             "mode": normalized.mode,
             "identity": normalized.identity,
-            "request": request,
+            "admission": admission,
+            "plugins": plugin_receipts,
+            "request_path": str(request_path),
             "selection_path": str(public_selection.relative_to(self.workspace_root)),
             "context": context_manifest,
             "gate_context": gate_context,
@@ -142,7 +190,9 @@ class WorkflowCore:
                 return {"kind": "blocked", "run_id": run_id, "reason": state["blocked_reason"]}
             item = state["items"][state["current_index"]]
             if item["status"] == "waiting_for_result":
-                task = self.state.read_json(self.state.task_path(run_id, item["task_id"]))
+                task = self.state.read_json(
+                    self.state.task_path(run_id, item["work_id"], item["task_id"])
+                )
                 return {"kind": "task", **task}
             profile = load_profile(self.install_root, state["profile"])
             stage_definition = next_stage(profile, item["stage"])
@@ -213,12 +263,12 @@ class WorkflowCore:
                 "issue_key": item["key"],
                 "stage": stage,
                 "expected_revision": revision,
-                "result_path": str(self.state.result_path(run_id, task_id)),
+                "result_path": str(self.state.result_path(run_id, item["work_id"], task_id)),
                 "allowed_outputs": stage_outputs(stage_definition),
                 "required_outputs": stage_outputs(stage_definition),
                 "worker": worker,
             }
-            task_path = self.state.task_path(run_id, task_id)
+            task_path = self.state.task_path(run_id, item["work_id"], task_id)
             if task_path.exists():
                 task = self.state.read_json(task_path)
             else:
@@ -231,10 +281,12 @@ class WorkflowCore:
     def submit(self, run_id: str, task_id: str, result: dict[str, Any]) -> dict[str, Any]:
         with self.state.lock(run_id):
             state = self._read(run_id)
-            task = self.state.read_json(self.state.task_path(run_id, task_id))
             item = next((candidate for candidate in state["items"] if candidate.get("task_id") == task_id), None)
             if item is None or item["status"] != "waiting_for_result":
                 raise WorkflowError("task is not pending for this run")
+            task = self.state.read_json(
+                self.state.task_path(run_id, item["work_id"], task_id)
+            )
             try:
                 validate_result(task, result)
             except TaskError as exc:
@@ -249,13 +301,15 @@ class WorkflowCore:
                     destination = artifacts.task(item["key"])
                 elif artifact_name == "review":
                     destination = artifacts.review(item["key"])
+                elif isinstance(artifact_name, str) and artifact_name.startswith("generated:"):
+                    destination = artifacts.generated(artifact_name.removeprefix("generated:"), item["key"])
                 else:
                     raise WorkflowError(f"unsupported output artifact target: {artifact_name}")
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(content, encoding="utf-8")
-            self.state.write_json(self.state.result_path(run_id, task_id), result)
+            self.state.write_json(self.state.result_path(run_id, item["work_id"], task_id), result)
             item["status"] = "pending"
-            item["result_path"] = str(self.state.result_path(run_id, task_id))
+            item["result_path"] = str(self.state.result_path(run_id, item["work_id"], task_id))
             state["revision"] += 1
             state["updated_at"] = _now()
             self._write_state(state)
@@ -277,4 +331,10 @@ class WorkflowCore:
             sources = {}
         # Read old single-source state during the transition to batch context.
         source = sources.get(issue_key, context.get("source"))
-        return {"source": source, "parent": context.get("parent")}
+        parents = context.get("parents", {})
+        parent = parents.get(issue_key) if isinstance(parents, dict) else None
+        if parent is None:
+            parent = context.get("parent")
+        linked = context.get("linked", {})
+        linked_issues = linked.get(issue_key, []) if isinstance(linked, dict) else []
+        return {"source": source, "parent": parent, "linked": linked_issues}
