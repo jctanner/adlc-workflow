@@ -263,6 +263,137 @@ requires successful outputs before deterministic aggregation and scoring.
 The rubric's content digest is pinned in the profile, and scoring uses the
 declared scoring inputs rather than treating every reviewer as a numeric scorer.
 
+## Batch selection and execution
+
+A batch is one workflow run containing a frozen ordered list of issue keys.
+Each issue gets its own `work_id`, tasks, fragments, results, and worker attempts
+under that run. Context is prepared for the run and shared by its workers;
+public documents and review files are resolved separately for each issue.
+Batch size and execution concurrency are independent controls.
+
+### Selecting the batch
+
+Agent-led invocation accepts explicit keys, captures their Jira records, and
+creates one request containing all of them. The controller routes (handoff and
+direct CLI) support both explicit keys and profile-based discovery:
+
+```mermaid
+flowchart TD
+    E[Explicit issue keys] --> D[Deduplicate, preserve caller order]
+    P[Profile without issue keys] --> J[Paginated Jira discovery]
+    J --> G[Deduplicate and sort keys; fetch and gate-check candidates]
+    D --> S[Apply batch offset and size]
+    G --> S
+    S --> F[Freeze selected keys and captured source]
+    F --> N{Any selected issues?}
+    N -->|No| Z[Controller returns no_work]
+    N -->|Yes| C[Core admission and initial gate checks]
+    C --> R[One run with one work item per issue]
+```
+
+For controller discovery, `--batch-offset` and `--batch-size` slice the eligible
+list after filtering. With explicit keys, they slice the deduplicated caller
+list before fetching the selected records; core admission then checks those
+records. Explicit keys do not bypass gates. Discovery records exclusion reasons;
+an initial gate failure for an explicitly selected issue rejects run creation.
+
+The batch remains fixed while executing. New matching Jira issues are considered
+on a subsequent invocation. An offset addresses a position in that invocation's
+selection; it is not a durable cursor for a changing Jira query.
+
+```sh
+# Two explicit issues, processed sequentially by default.
+adlc-workflow handoff --profile rhai-feature-creator --workspace /workspace \
+  RHAIRFE-1 RHAIRFE-2
+
+# Discover up to ten eligible issues; schedule up to two processing tasks.
+adlc-workflow handoff --profile rhai-feature-creator --workspace /workspace \
+  --batch-size 10 --batch-offset 0 --item-parallelism 2
+```
+
+The skill-handoff route forwards these controller options. The example runner
+exposes item concurrency through `ADLC_ITEM_PARALLELISM`. Agent-led batch work
+uses the serial protocol loop; it does not acquire controller scheduling merely
+by selecting multiple issues.
+
+### Serial and concurrent processing
+
+| Driver | Across issues | Within an issue's review |
+| --- | --- | --- |
+| Agent-led | Serial, using `advance` and `submit`. | Native reviewers run serially, with a warning when parallel review was requested. |
+| Handoff / CLI, default | Serial, completing an issue's processing stages before moving to the next. | Reviewer subprocesses may run concurrently according to profile and controller limits. |
+| Handoff / CLI, `--item-parallelism N` | Up to N claimed processing tasks in flight across issues. | Each review task has its own reviewer concurrency limit. |
+
+The serial processing order for two feature requests is:
+
+```mermaid
+flowchart LR
+    A[Issue 1 refine] --> B[Issue 1 review]
+    B --> C[Issue 2 refine]
+    C --> D[Issue 2 review]
+    D --> E[Publish completed batch]
+```
+
+With concurrent scheduling, independent issues can occupy different stages:
+
+```mermaid
+flowchart LR
+    S[Frozen batch] --> A1[Issue 1 refine]
+    S --> A2[Issue 2 refine]
+    A1 --> B1[Issue 1 review]
+    A2 --> B2[Issue 2 review]
+    B1 --> P[All items processed; no tasks in flight]
+    B2 --> P
+    P --> J[Jira effects, if configured]
+    J --> B[Archive batch and record receipts]
+```
+
+Arrows express dependencies, not equal durations. Issue 1 may start review while
+issue 2 is still refining. There is no batch-wide refine/review stage barrier.
+The scheduler claims one ready task at a time; a worker thread does not own an
+issue's entire lifecycle. A slot becomes available after the task submits its
+result, and the scheduler claims the next eligible task in run item order.
+
+Within each controller review task, the configured reviewer assignments fan out
+to Claude subprocesses, then join before deterministic aggregation and scoring:
+
+```mermaid
+flowchart LR
+    T[Review task] --> S[Scorer]
+    T --> F[Feasibility]
+    T --> V[Testability]
+    T --> C[Scope]
+    T --> A[Architecture]
+    S --> G[All reviewer outputs accepted]
+    F --> G
+    V --> G
+    C --> G
+    A --> G
+    G --> R[Aggregate and score]
+    R --> U[Submit review task result]
+```
+
+This fan-out is bounded by reviewer concurrency and becomes serial when the
+profile requests sequential execution. With two simultaneous review tasks and
+a five-reviewer limit, up to ten reviewer model processes can run concurrently.
+`--item-parallelism` therefore does not impose a global model-process limit.
+
+### Completion and failures
+
+Publication starts only after all selected items finish their processing stages
+and the controller has no tasks in flight. It publishes the selected batch
+through the configured adapters; it does not publish each issue immediately
+after that issue's review. Completing review is distinct from receiving an
+approval verdict: the publication mapping determines how the score is reflected
+in Jira.
+
+A failed worker or missing reviewer output prevents the corresponding task
+from being submitted and prevents normal batch publication. Other tasks already
+running may finish and leave valid artifacts; there is no rollback of completed
+LLM work. The current scheduler does not automatically skip the failed issue
+and publish a smaller batch. Publication itself can partially succeed, as
+described under effect receipts below.
+
 ## Concurrency and failure handling
 
 The controller uses `ThreadPoolExecutor` to schedule tasks and reviewer work;

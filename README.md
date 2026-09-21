@@ -30,6 +30,40 @@ agent-led mode retains Claude's native stream. Evaluate modes on artifact
 quality, reliability, cost, latency, observability, and operator fit before
 standardizing on one.
 
+## Batch execution
+
+A batch is one run with a frozen set of selected tickets, per-ticket tasks and
+artifacts, and a publication barrier after all selected tickets finish processing.
+The controller accepts explicit issue keys or discovers eligible tickets from the
+profile's initial gate. Discovery applies eligibility checks before
+`--batch-offset` and `--batch-size`; explicit keys preserve their supplied order
+after deduplication.
+
+Batch size and concurrency are separate controls:
+
+- **Agent-led:** processes tickets and their reviewers serially, warning that
+  reviewer parallelism is not enforced in this mode.
+- **Skill → CLI handoff and direct CLI:** process tickets serially by default;
+  `--item-parallelism N` allows up to N processing tasks across tickets at once.
+  Each ticket can advance from refinement to review independently—there is no
+  batch-wide refinement barrier.
+- **Reviewer concurrency:** controlled separately by the profile for each review
+  task. Concurrent tickets can each fan out reviewers, so item parallelism is
+  not a global limit on model subprocesses.
+
+For example, discover up to ten eligible tickets and process up to two tasks
+concurrently:
+
+```sh
+adlc-workflow handoff --profile rhai-feature-creator --workspace /workspace \
+  --batch-size 10 --item-parallelism 2
+```
+
+A failed processing task prevents normal batch publication; completed artifacts
+remain available for inspection. See [Batch selection and execution](docs/architecture.md#batch-selection-and-execution)
+for selection rules, serial/concurrent execution diagrams, reviewer fan-out,
+and failure boundaries.
+
 ## Intended shape
 
 - `src/adlc_workflow/` — deterministic lifecycle, task protocol, state, and
@@ -47,9 +81,10 @@ See the proposal for the ownership, lifecycle, and acceptance requirements.
 
 ## Reviewer agents
 
-The feature profile declares five `agent:` reviewers. The review dispatch
-skill runs in the parent session and launches native background Task/Agent
-calls; individual reviewers no longer use forked Skill calls. The
+The feature profile declares five `agent:` reviewers. In agent-led mode, the
+review dispatch skill launches native Task/Agent calls serially; in controller
+modes, reviewer subprocesses can run concurrently according to the profile.
+Individual reviewers no longer use forked Skill calls. The
 `adlc-review-plan` helper supplies profile-selected paths and agent assignments.
 Dispatch waits for all agents to succeed and checks their output files before
 aggregation.
@@ -148,8 +183,9 @@ worker stream events; a private copy is retained at
 `.adlc/state/runs/<run-id>/events.jsonl`. Without it, the same events are
 rendered for humans.
 
-Batch items remain sequential by default. Set `ADLC_ITEM_PARALLELISM=2` to
-claim and process two tickets concurrently; each ticket still honors the
+In `cli` and `handoff` modes, batch items remain sequential by default.
+Set `ADLC_ITEM_PARALLELISM=2` to process up to two tasks across tickets
+concurrently; each ticket still honors the
 profile's reviewer parallelism, and publication remains a barrier after all
 selected tickets finish.
 
