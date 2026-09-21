@@ -110,10 +110,15 @@ Execution contract:
    `refine-result.json`, or other flat aliases. For a refine task, invoke the
    plugin-qualified Skill named by the task's `worker` value (for example,
    `skill:rhai-feature-refine-worker` becomes
-   `adlc-workflow:rhai-feature-refine-worker`). The worker writes the strategy
-   artifact and returns only a compact JSON record containing its absolute
-   `artifact_path`; do not ask it to return or reproduce the markdown. Use that
-   path directly with the prewritten result-envelope command below. Do not
+   `adlc-workflow:rhai-feature-refine-worker`). Pass the task file, its
+   `fragment_path`, and captured `$request_dir/request.json` path in its
+   arguments. The worker
+   writes only a private strategy fragment and returns its path; it must never
+   write a public feature artifact. Use that fragment path directly with the
+   prewritten result-envelope command below. On `adlc-submit`, the core
+   deterministically assembles the public feature document from the captured
+   Jira summary/description, the validated strategy fragment, and the template
+   SME footer. Do not
    generate the JSON envelope with inline Python, a heredoc, or a pipe:
 
    Obtain every task envelope with the prewritten task helper. Do not invoke
@@ -126,12 +131,20 @@ Execution contract:
    ```
 
    The helper supplies the required `--run` argument and creates the parent
-   directories. Use the returned path as `--task-file`.
+   directories. Use the returned path as `--task-file`. For a refine task,
+   read `fragment_path` from that task file with `jq -r .fragment_path` and
+   invoke the worker with these exact arguments:
+
+   ```text
+   RHAIRFE-1 --task <task-file> --fragment-path <fragment-path> --captured-source <request-dir>/request.json
+   ```
+
+   Do not substitute the public artifact path for `fragment_path`.
 
    ```bash
    "$CLAUDE_PLUGIN_ROOT/scripts/adlc-result" \
      --task-file <task-json-file> \
-     --markdown-file <strategy-markdown-file> \
+     --markdown-file <strategy-fragment-file> \
      --field strategy_markdown \
      --output <task-result-path>
    ```

@@ -1,0 +1,12 @@
+{
+  "key": "RHAIRFE-1",
+  "fields": {
+    "project": {"key": "RHAIRFE"},
+    "issuetype": {"name": "Feature Request"},
+    "summary": "Provide an MCP server registry for RHOAI",
+    "description": "## Summary\nRHOAI needs a discoverable registry of available Model Context Protocol (MCP) servers so administrators and users can understand which integrations are supported, how they are configured, and which capabilities they expose.\n\n## Problem Statement\nInformation about MCP servers is distributed across repositories, deployment documentation, and individual product integrations. Users cannot reliably discover available servers from one RHOAI surface or determine deployment and security prerequisites.\n\n## Acceptance Criteria\n- [ ] RHOAI provides a documented registry format for MCP server entries.\n- [ ] Each entry identifies the server, owner, capabilities, supported RHOAI compatibility, deployment requirements, security considerations, and documentation links.\n- [ ] Users can discover the registry through an RHOAI-supported interface or repository.\n- [ ] The registry defines ownership and review expectations for adding, changing, deprecating, and removing entries.\n- [ ] Registry metadata can distinguish supported servers from experimental or community-provided servers.\n- [ ] The design does not require executable MCP server code to be stored in the registry itself.\n\n## Open Questions\nWhat is the initial authoritative storage and discovery surface? Which RHOAI release and deployment dimensions must compatibility metadata cover? Should the first version include only Red Hat-maintained servers or also reviewed community servers?",
+    "labels": ["rfe-creator-rubric-pass", "strat-creator-3.6"],
+    "status": {"name": "New"},
+    "customfield_10855": "3.6 GA RHOAI RELEASE"
+  }
+}

@@ -16,6 +16,16 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     task = json.loads(args.task_file.read_text(encoding="utf-8"))
+    fragment_path = task.get("fragment_path")
+    if fragment_path is not None:
+        if args.field != "strategy_markdown":
+            raise SystemExit("assembled refinement task requires strategy_markdown")
+        expected = Path(fragment_path).resolve()
+        supplied = args.markdown_file.resolve()
+        if supplied != expected:
+            raise SystemExit(
+                f"assembled refinement task requires its private fragment_path: {expected}"
+            )
     markdown = args.markdown_file.read_text(encoding="utf-8")
     if not markdown.strip():
         raise SystemExit(f"markdown file is empty: {args.markdown_file}")

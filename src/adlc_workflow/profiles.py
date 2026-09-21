@@ -131,6 +131,10 @@ def validate_profile(project_root: str | Path, value: dict[str, Any]) -> None:
             skill_name = worker.removeprefix("skill:")
             if not _NAME_RE.fullmatch(skill_name) or not (root / "skills" / skill_name / "SKILL.md").is_file():
                 raise ProfileError(f"stage {stage['id']} references a missing skill worker: {worker}")
+        assembly = stage.get("assembly")
+        if assembly is not None:
+            if stage.get("id") != "refine" or not isinstance(assembly, dict) or assembly.get("renderer") != "core:rhai-feature-document-v1":
+                raise ProfileError(f"stage {stage['id']} has an unsupported assembly declaration")
         outputs = stage.get("outputs", [])
         if not isinstance(outputs, list):
             raise ProfileError(f"stage {stage['id']} outputs must be a list")

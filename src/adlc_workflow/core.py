@@ -12,9 +12,10 @@ from typing import Any
 from .publication import PublicationError, publish_run
 from .admission import AdmissionError, admit_request, enforce_profile_permissions, load_policy
 from .plugins import PluginError, activate_plugins
-from .context import ContextError, prepare_context
+from .context import ContextError, prepare_context, selected_overlay_paths
 from .artifacts import ArtifactLayout, ArtifactLayoutError
 from .profiles import load_profile, refine_template_path, resolve_profile_path
+from .refinement import RefinementError, assemble_feature_document, uses_feature_document_assembly
 from .selection import SelectionError, freeze_selection, normalize_request
 from .state import StateError, StateStore
 from .tasks import TaskError, validate_result
@@ -212,6 +213,7 @@ class WorkflowCore:
                 )
                 return {"kind": "task", **task}
             profile = load_profile(self.install_root, state["profile"])
+            artifacts = ArtifactLayout(self.workspace_root, profile)
             stage_definition = next_stage(profile, item["stage"])
             if stage_definition is None:
                 raise WorkflowError(f"workflow has no next stage after {item['stage']}")
@@ -296,6 +298,12 @@ class WorkflowCore:
                 "required_outputs": stage_outputs(stage_definition),
                 "worker": worker,
             }
+            if uses_feature_document_assembly(stage_definition):
+                task["fragment_path"] = str(
+                    self.state.work_dir(run_id, item["work_id"]) / "fragments" / f"{task_id}.md"
+                )
+                task["worker_resources"] = self._feature_worker_resources(run_id, profile)
+                self._clear_public_refinement_artifact(artifacts, item["key"])
             task_path = self.state.task_path(run_id, item["work_id"], task_id)
             if task_path.exists():
                 task = self.state.read_json(task_path)
@@ -330,7 +338,7 @@ class WorkflowCore:
                     raise WorkflowError(f"workflow has no next stage after {item['stage']}")
                 if stage_definition.get("kind") == "publication":
                     continue
-                task = self._claim_task(state, item, stage_definition)
+                task = self._claim_task(state, item, stage_definition, profile)
                 self._write_state(state)
                 return {"kind": "task", **task}
             if any(item["status"] == "waiting_for_result" for item in state["items"]):
@@ -342,6 +350,7 @@ class WorkflowCore:
         state: dict[str, Any],
         item: dict[str, Any],
         stage_definition: dict[str, Any],
+        profile: dict[str, Any],
     ) -> dict[str, Any]:
         """Persist one claimed processing task while the run lock is held."""
         run_id = state["run_id"]
@@ -371,6 +380,12 @@ class WorkflowCore:
             "required_outputs": stage_outputs(stage_definition),
             "worker": stage_definition.get("worker"),
         }
+        if uses_feature_document_assembly(stage_definition):
+            task["fragment_path"] = str(
+                self.state.work_dir(run_id, item["work_id"]) / "fragments" / f"{task_id}.md"
+            )
+            task["worker_resources"] = self._feature_worker_resources(run_id, profile)
+            self._clear_public_refinement_artifact(ArtifactLayout(self.workspace_root, profile), item["key"])
         task_path = self.state.task_path(run_id, item["work_id"], task_id)
         if task_path.exists():
             task = self.state.read_json(task_path)
@@ -394,9 +409,20 @@ class WorkflowCore:
             except TaskError as exc:
                 raise WorkflowError(str(exc)) from exc
             profile = load_profile(self.install_root, state["profile"])
+            stage_definition = stage(profile, item["stage"])
+            accepted_result = result
+            if uses_feature_document_assembly(stage_definition):
+                source = self._gate_context(state.get("gate_context", {}), item["key"]).get("source")
+                try:
+                    assembled = assemble_feature_document(
+                        self.install_root, profile, source, result["outputs"]["strategy_markdown"],
+                    )
+                except RefinementError as exc:
+                    raise WorkflowError(str(exc)) from exc
+                accepted_result = {**result, "outputs": {**result["outputs"], "strategy_markdown": assembled}}
             artifacts = ArtifactLayout(self.workspace_root, profile)
-            for output_name, artifact_name in stage_output_artifacts(stage(profile, item["stage"])).items():
-                content = result["outputs"].get(output_name)
+            for output_name, artifact_name in stage_output_artifacts(stage_definition).items():
+                content = accepted_result["outputs"].get(output_name)
                 if not isinstance(content, str) or not content.strip():
                     continue
                 if artifact_name == "task":
@@ -409,7 +435,7 @@ class WorkflowCore:
                     raise WorkflowError(f"unsupported output artifact target: {artifact_name}")
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(content, encoding="utf-8")
-            self.state.write_json(self.state.result_path(run_id, item["work_id"], task_id), result)
+            self.state.write_json(self.state.result_path(run_id, item["work_id"], task_id), accepted_result)
             item["status"] = "pending"
             item["result_path"] = str(self.state.result_path(run_id, item["work_id"], task_id))
             state["revision"] += 1
@@ -425,6 +451,24 @@ class WorkflowCore:
 
     def _write_state(self, state: dict[str, Any]) -> None:
         self.state.write_json(self.state.state_path(state["run_id"]), state)
+
+    @staticmethod
+    def _clear_public_refinement_artifact(artifacts: ArtifactLayout, issue_key: str) -> None:
+        """Ensure a failed/new fragment can never leave a stale public strategy."""
+        destination = artifacts.task(issue_key)
+        if destination.exists() and not destination.is_file():
+            raise WorkflowError(f"refinement artifact path is not a file: {destination}")
+        destination.unlink(missing_ok=True)
+
+    def _feature_worker_resources(self, run_id: str, profile: dict[str, Any]) -> dict[str, Any]:
+        """Freeze the read-only inputs a feature worker may need."""
+        manifest = self.workspace_root / ".context" / "context-manifest.json"
+        return {
+            "source_request_path": str(self.state.request_path(run_id)),
+            "template_path": str(refine_template_path(self.install_root, profile)),
+            "context_manifest_path": str(manifest),
+            "overlay_paths": [str(path) for path in selected_overlay_paths(self.workspace_root)],
+        }
 
     @staticmethod
     def _gate_context(context: dict[str, Any], issue_key: str) -> dict[str, Any]:

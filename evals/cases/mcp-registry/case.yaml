@@ -1,0 +1,6 @@
+schema_version: 1
+id: mcp-registry
+issue_key: RHAIRFE-1
+source_issue: source-issue.json
+judge_notes: judge-notes.md
+judge_context_files: []

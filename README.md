@@ -1,10 +1,34 @@
 # adlc-workflow
 
-Skeleton for the deterministic ADLC workflow proposed in
-`proposals/013-fullsend-strat-workflow/proposal.md`.
+Profile-driven ADLC workflow tooling for turning approved RHAI feature requests
+into reviewed, published strategy artifacts. It implements the workflow proposed
+in `proposals/013-fullsend-strat-workflow/proposal.md`, with runtime state kept
+private to tooling and publishable artifacts kept under the profile-defined
+artifact layout.
 
-This tree defines the intended boundaries only. Implementation, deployment
-values, credentials, and production adapters are intentionally absent.
+## Three execution modes
+
+The workflow deliberately supports three ways to run the same profile and task
+protocol. This is a core project feature, not transitional compatibility code.
+Different teams have different, reasonable perspectives on how agentic work
+should be controlled: an agent can own the whole run, an agent can hand work to
+a deterministic harness, or a harness can be invoked directly. ADLC keeps
+those choices comparable so evidence—not an assumed architecture—can determine
+which method is best for a workflow.
+
+| Mode | Entry point | Control boundary | Useful when |
+| --- | --- | --- | --- |
+| Agent-led | `claude -p "/adlc-workflow:adlc-workflow RHAIRFE-1"` | The outer Claude session drives the workflow, skills, and protocol tools. | Exploring the workflow, using adaptive judgment, or retaining the full native Claude session trace. |
+| Skill → CLI handoff | `claude -p "/adlc-workflow:adlc-workflow --handoff --profile=rhai-feature-creator RHAIRFE-1"` | The outer skill performs one delegation to the deterministic controller, which launches bounded workers. | Keeping a Claude-facing entry point while making scheduling, retries, parallelism, state, and artifact handling deterministic. |
+| Direct CLI | `adlc-workflow handoff --profile rhai-feature-creator RHAIRFE-1` | The deterministic controller owns the run directly and launches Claude only for bounded LLM tasks. | Automation, batch execution, parallel item processing, structured observability, and minimal outer-agent context use. |
+
+All three modes use the same profile, core task/result contract, context
+preparation, private state, artifact layout, publication adapters, and bounded
+worker definitions. They differ only in who controls the workflow loop. The
+controller modes retain normalized event streams and raw worker transcripts;
+agent-led mode retains Claude's native stream. Evaluate modes on artifact
+quality, reliability, cost, latency, observability, and operator fit before
+standardizing on one.
 
 ## Intended shape
 
@@ -116,7 +140,7 @@ controller via the outer `/adlc-workflow` skill. The skill delegates once to
 invoke that deterministic controller directly, without an outer Claude
 session. `ADLC_HANDOFF_DANGEROUSLY_SKIP_PERMISSIONS=1` is the explicit
 local-container policy that lets child workers write their assigned runtime
-artifacts. The default remains `claude`.
+artifacts. The default `claude` value is the agent-led mode.
 
 In `cli` mode, set `ADLC_CONTROLLER_JSON=1` for a live normalized JSONL stream
 on stdout. It includes deterministic controller events and tagged raw Claude

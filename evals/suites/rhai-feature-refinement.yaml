@@ -1,0 +1,18 @@
+schema_version: 1
+id: rhai-feature-refinement
+version: 1
+target_worker: skill:rhai-feature-refine-worker
+checks:
+  - completion_contract
+  - assigned_artifact
+  - template_sections
+  - source_preservation
+  - frozen_inputs
+  - model_identity
+dimensions:
+  - requirements_fidelity
+  - architectural_grounding
+  - scope_and_coverage
+  - testability
+  - source_precedence
+  - clarity_and_detail

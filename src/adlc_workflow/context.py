@@ -19,6 +19,40 @@ class ContextError(RuntimeError):
     """Raised when configured context cannot be fetched or prepared."""
 
 
+def selected_overlay_paths(workspace_root: str | Path) -> list[Path]:
+    """Return the exact overlay files selected during context preparation."""
+    workspace = Path(workspace_root).resolve()
+    manifest_path = workspace / ".context" / "context-manifest.json"
+    if not manifest_path.is_file():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContextError(f"invalid prepared context manifest: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise ContextError("prepared context manifest must be an object")
+    paths: list[Path] = []
+    for source in manifest.get("sources", []):
+        if not isinstance(source, dict) or not isinstance(source.get("destination"), str):
+            continue
+        destination = (workspace / source["destination"]).resolve()
+        try:
+            destination.relative_to(workspace)
+        except ValueError as exc:
+            raise ContextError(f"context destination escapes workspace: {destination}") from exc
+        for overlay in source.get("applied_overlays", []):
+            if not isinstance(overlay, dict) or not isinstance(overlay.get("path"), str):
+                continue
+            path = (destination / overlay["path"]).resolve()
+            try:
+                path.relative_to(workspace)
+            except ValueError as exc:
+                raise ContextError(f"context overlay escapes workspace: {path}") from exc
+            if path.is_file():
+                paths.append(path)
+    return sorted(set(paths))
+
+
 def _git(repo: Path, *args: str) -> str:
     try:
         result = subprocess.run(

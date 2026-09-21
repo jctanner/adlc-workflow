@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["schema_version","evaluation_id","pair_outcomes"],"properties":{"schema_version":{"const":1}}}

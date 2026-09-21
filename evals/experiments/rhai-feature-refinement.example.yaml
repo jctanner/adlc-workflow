@@ -1,0 +1,30 @@
+schema_version: 1
+name: rhai-feature-refinement-model-ab
+suite: ../suites/rhai-feature-refinement.yaml
+target:
+  worker: skill:rhai-feature-refine-worker
+  profile: rhai-feature-creator
+  invocation: controller-worker
+candidates:
+  A:
+    model: REPLACE_WITH_MODEL_A
+    accepted_resolved_models: [REPLACE_WITH_CANONICAL_MODEL_A]
+  B:
+    model: REPLACE_WITH_MODEL_B
+    accepted_resolved_models: [REPLACE_WITH_CANONICAL_MODEL_B]
+cases: [../cases/mcp-registry]
+repetitions: 3
+execution:
+  order: alternating
+  worker_timeout_seconds: 900
+  startup_timeout_seconds: 120
+  container_image: adlc-claude-task-runner:local
+context:
+  prepared_workspace: REPLACE_WITH_PREPARED_WORKSPACE
+judge:
+  model: REPLACE_WITH_FIXED_JUDGE_MODEL
+  accepted_resolved_models: [REPLACE_WITH_CANONICAL_JUDGE_MODEL]
+  prompt: ../judges/refinement-pairwise.md
+  timeout_seconds: 300
+  evidence_max_bytes: 120000
+  order_swap: true

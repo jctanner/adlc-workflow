@@ -1,0 +1,35 @@
+schema_version: 1
+name: rhai-feature-refinement-haiku-vs-sonnet
+suite: ../suites/rhai-feature-refinement.yaml
+target:
+  worker: skill:rhai-feature-refine-worker
+  profile: rhai-feature-creator
+  invocation: controller-worker
+candidates:
+  A:
+    model: claude-haiku-4-5
+    accepted_resolved_models: [claude-haiku-4-5]
+  B:
+    model: claude-sonnet-5
+    accepted_resolved_models: [claude-sonnet-5]
+cases: [../cases/mcp-registry]
+# One repetition is a practical smoke comparison. Copy this configuration and
+# increase the value for repeated trials; do not overwrite an existing result.
+repetitions: 1
+execution:
+  order: alternating
+  worker_timeout_seconds: 900
+  startup_timeout_seconds: 120
+  container_image: adlc-claude-task-runner:local
+context:
+  # Snapshot only this directory's .context; it does not import artifacts,
+  # private controller state, or prior Claude sessions from workspace/.
+  prepared_workspace: ../../workspace
+judge:
+  # The fixed evaluator is intentionally independent of both candidates.
+  model: claude-opus-4-6
+  accepted_resolved_models: [claude-opus-4-6]
+  prompt: ../judges/refinement-pairwise.md
+  timeout_seconds: 300
+  evidence_max_bytes: 120000
+  order_swap: true

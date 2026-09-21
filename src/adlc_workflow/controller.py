@@ -20,6 +20,7 @@ from .artifacts import ArtifactLayout, ArtifactLayoutError
 from .core import WorkflowCore, WorkflowError
 from .profiles import ProfileError, load_profile, resolve_profile_path
 from .reviews import review_plan
+from .refinement import uses_feature_document_assembly
 from .scoring import ScoringError, score_review
 from .selection import KEY_RE
 from .state import StateError
@@ -194,6 +195,10 @@ class ClaudeWorkerRuntime:
             command.append("--dangerously-skip-permissions")
         if self.model:
             command.extend(["--model", self.model])
+        if worker_name == "rhai-feature-refine-worker":
+            # This worker needs only frozen documents plus its private output.
+            # Restrict its tool surface instead of trusting it not to use Jira.
+            command.extend(["--tools", "Read,Write"])
         command.extend(["--output-format", "stream-json"])
         # The machine protocol retains every partial delta. Human mode uses
         # Claude's complete assistant/tool records to avoid fragmented text.
@@ -760,6 +765,15 @@ class HandoffController:
         declared = {item["name"]: item["artifact"] for item in stage_definition.get("outputs", [])}
         result: dict[str, Path] = {}
         for output in task["required_outputs"]:
+            if output == "strategy_markdown" and uses_feature_document_assembly(stage_definition):
+                fragment_path = task.get("fragment_path")
+                if not isinstance(fragment_path, str) or not fragment_path:
+                    raise ControllerError("assembled refinement task has no fragment_path")
+                candidate = Path(fragment_path).resolve()
+                if not candidate.is_relative_to(self.core.state.root):
+                    raise ControllerError("refinement fragment path must stay in private state")
+                result[output] = candidate
+                continue
             artifact = declared.get(output)
             if artifact == "task":
                 result[output] = layout.task(task["issue_key"])
@@ -924,6 +938,7 @@ def _skill_prompt(definition: Path, task: dict[str, Any], output_paths: dict[str
         f"Install root: {install_root}\nWorkspace: {workspace_root}\nProfile: {profile_path}\n"
         f"Task: {json.dumps(task, sort_keys=True)}\n"
         f"Captured source request: {source_request_path}\n"
+        f"Worker resources: {json.dumps(task.get('worker_resources', {}), sort_keys=True)}\n"
         f"Required output paths: {json.dumps({key: str(value) for key, value in output_paths.items()}, sort_keys=True)}\n"
         "Write each required artifact to its assigned path. Return only a compact JSON completion record."
     )

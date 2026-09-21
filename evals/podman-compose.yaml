@@ -1,0 +1,44 @@
+services:
+  worker:
+    image: ${ADLC_EVAL_IMAGE:?Set ADLC_EVAL_IMAGE}
+    userns_mode: keep-id
+    working_dir: /workspace
+    entrypoint: ["/bin/sh", "/opt/adlc-evals/scripts/container-entrypoint.sh"]
+    command: ["worker"]
+    environment:
+      CLAUDE_PLUGIN_ROOT: /home/evaluator/.claude/plugins/adlc-workflow
+      ADLC_EVAL_ROLE: worker
+      ADLC_EVAL_MODEL: ${ADLC_EVAL_MODEL:-}
+      ADLC_EVAL_TIMEOUT_SECONDS: ${ADLC_EVAL_TIMEOUT_SECONDS:-900}
+      ADLC_EVAL_CLAUDE_BIN: ${ADLC_EVAL_CLAUDE_BIN:-claude}
+      CLAUDE_CODE_USE_VERTEX: ${CLAUDE_CODE_USE_VERTEX:-1}
+      ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID:?Set ANTHROPIC_VERTEX_PROJECT_ID}
+      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-global}
+      GOOGLE_APPLICATION_CREDENTIALS: /home/evaluator/.config/gcloud/application_default_credentials.json
+    volumes:
+      - ${ADLC_EVAL_PLUGIN_DIR:?Set ADLC_EVAL_PLUGIN_DIR}:/home/evaluator/.claude/plugins/adlc-workflow:ro
+      - ${ADLC_EVAL_RUNTIME_DIR:?Set ADLC_EVAL_RUNTIME_DIR}:/opt/adlc-evals:ro
+      - ${ADLC_EVAL_WORKSPACE_DIR:?Set ADLC_EVAL_WORKSPACE_DIR}:/workspace:rw
+      - ${ADLC_EVAL_INPUT_DIR:?Set ADLC_EVAL_INPUT_DIR}:/workspace/.adlc-eval/input:ro
+      - ${ADLC_EVAL_CONTEXT_DIR:?Set ADLC_EVAL_CONTEXT_DIR}:/workspace/.context:ro
+      - ${ADLC_HOST_ADC_PATH:?Set ADLC_HOST_ADC_PATH}:/home/evaluator/.config/gcloud/application_default_credentials.json:ro
+
+  judge:
+    image: ${ADLC_EVAL_IMAGE:?Set ADLC_EVAL_IMAGE}
+    userns_mode: keep-id
+    working_dir: /judge
+    entrypoint: ["/bin/sh", "/opt/adlc-evals/scripts/container-entrypoint.sh"]
+    command: ["judge"]
+    environment:
+      ADLC_EVAL_ROLE: judge
+      ADLC_EVAL_MODEL: ${ADLC_EVAL_MODEL:-}
+      ADLC_EVAL_TIMEOUT_SECONDS: ${ADLC_EVAL_TIMEOUT_SECONDS:-300}
+      CLAUDE_CODE_USE_VERTEX: ${CLAUDE_CODE_USE_VERTEX:-1}
+      ANTHROPIC_VERTEX_PROJECT_ID: ${ANTHROPIC_VERTEX_PROJECT_ID:?Set ANTHROPIC_VERTEX_PROJECT_ID}
+      CLOUD_ML_REGION: ${CLOUD_ML_REGION:-global}
+      GOOGLE_APPLICATION_CREDENTIALS: /home/evaluator/.config/gcloud/application_default_credentials.json
+    volumes:
+      - ${ADLC_EVAL_RUNTIME_DIR:?Set ADLC_EVAL_RUNTIME_DIR}:/opt/adlc-evals:ro
+      - ${ADLC_EVAL_JUDGE_INPUT_DIR:?Set ADLC_EVAL_JUDGE_INPUT_DIR}:/judge/input:ro
+      - ${ADLC_EVAL_JUDGE_OUTPUT_DIR:?Set ADLC_EVAL_JUDGE_OUTPUT_DIR}:/judge/output:rw
+      - ${ADLC_HOST_ADC_PATH:?Set ADLC_HOST_ADC_PATH}:/home/evaluator/.config/gcloud/application_default_credentials.json:ro

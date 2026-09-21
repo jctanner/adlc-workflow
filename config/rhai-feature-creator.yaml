@@ -31,6 +31,10 @@ workflow:
     # RHAIRFE intake mirrors strat-pipeline's discovery gate.
     - id: refine
       worker: skill:rhai-feature-refine-worker
+      # The model writes only a private strategy fragment. The core renders
+      # Business Need from the captured Jira source and appends SME input.
+      assembly:
+        renderer: core:rhai-feature-document-v1
       template:
         path: templates/rhai-feature-creator/feature-template.md
       protected_sections:
